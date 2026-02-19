@@ -1,0 +1,100 @@
+*dwight.txt*  AI-assisted coding for Neovim
+
+CONTENTS                                                    *dwight-contents*
+
+  1. Introduction .......................... |dwight-introduction|
+  2. Setup ................................. |dwight-setup|
+  3. Prompt ................................ |dwight-prompt|
+  4. Modes ................................. |dwight-modes|
+  5. Skills ................................ |dwight-skills|
+  6. Symbols ............................... |dwight-symbols|
+  7. Runner ................................ |dwight-runner|
+  8. Commands .............................. |dwight-commands|
+  9. Keymaps ............................... |dwight-keymaps|
+
+1. INTRODUCTION                                         *dwight-introduction*
+
+dwight.nvim is a developer-centered AI coding assistant. You select code,
+type instructions with @skills /modes #symbols, and the LLM modifies your
+code with precise, LSP-enriched context.
+
+2. SETUP                                                       *dwight-setup*
+
+  require("dwight").setup({ ... })
+
+Run :DwightInit in your project root to create .dwight/ with an AI-generated
+project.md and built-in skills.
+
+3. PROMPT                                                     *dwight-prompt*
+
+Select code in visual mode, then <leader>ai to open the prompt.
+Type freely. Use inline tokens:
+
+  @skill-name     Load a skill (coding guidelines)
+  /mode-name      Set operation mode
+  #symbol-name    Include source code from another file (via LSP)
+
+Press ? in normal mode to toggle help. <CR> to submit. <Esc>/q to cancel.
+Completion is fuzzy — keep typing after @, /, # to filter.
+
+4. MODES                                                       *dwight-modes*
+
+  /document    Add documentation
+  /refactor    Improve structure
+  /optimize    Performance improvements
+  /fix_bugs    Find and fix bugs
+  /security    Security audit
+  /explain     Add explanatory comments
+  /brainstorm  Brainstorm ideas as comments
+  /code        Implement stubs
+  /fix         Fix based on last :DwightRun output
+
+Register custom modes:
+  require("dwight.modes").register("mymode", { task = "...", icon = "🔹" })
+
+5. SKILLS                                                     *dwight-skills*
+
+Skills are .md files in .dwight/skills/. Built-in skills are copied on init.
+Create with :DwightGenSkill (AI), :DwightDocs (from URL), or manually.
+
+6. SYMBOLS                                                   *dwight-symbols*
+
+Type #functionName in the prompt to include its source code from another
+file. Uses LSP workspace/symbol search. Helps the AI write DRY code by
+seeing existing functions/types it should reuse.
+
+7. RUNNER                                                     *dwight-runner*
+
+  :DwightRun npm test     Run and capture output
+  :DwightRunOutput        View last output
+  <leader>aF              Fix code based on last run errors
+
+8. COMMANDS                                                 *dwight-commands*
+
+  :DwightInit             Initialize project
+  :DwightInvoke           Open prompt
+  :DwightMode {mode}      Run mode directly
+  :DwightSkills           Browse skills
+  :DwightGenSkill         Generate skill (AI)
+  :DwightDocs             Skill from docs URL
+  :DwightInstallSkills    Install built-in skills
+  :DwightRun [cmd]        Run build/test
+  :DwightRunOutput        Show run output
+  :DwightLog              Job log
+  :DwightCancel [all]     Cancel job(s)
+  :DwightUsage            Usage stats
+  :DwightStatus           Full status
+
+9. KEYMAPS                                                   *dwight-keymaps*
+
+dwight.nvim does not set any keymaps by default. You set them yourself:
+>lua
+  local dwight = require("dwight")
+  vim.keymap.set("v", "<leader>ai", dwight.invoke)
+  vim.keymap.set("v", "<leader>ar", function() dwight.invoke_mode("refactor") end)
+  vim.keymap.set("n", "<leader>ax", dwight.cancel)
+<
+
+See the README for a full suggested keymap setup.
+
+ vim:tw=78:ts=8:ft=help:norl:
