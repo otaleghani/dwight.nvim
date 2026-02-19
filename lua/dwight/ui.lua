@@ -1,6 +1,5 @@
 -- dwight/ui.lua
--- Minimal floating prompt with fuzzy inline completion for @skills /modes #symbols.
--- No header. Press ? to toggle help. Just type and go.
+-- Floating prompt: a proper scratch buffer with static help below the divider.
 
 local M = {}
 
@@ -121,11 +120,11 @@ end
 -- Prompt Highlighting
 --------------------------------------------------------------------
 
-local function highlight_prompt_buf(buf)
+local function highlight_prompt_buf(buf, editable_end)
   if not api.nvim_buf_is_valid(buf) then return end
   api.nvim_buf_clear_namespace(buf, ns_hl, 0, -1)
 
-  local lines = api.nvim_buf_get_lines(buf, 0, -1, false)
+  local lines = api.nvim_buf_get_lines(buf, 0, editable_end, false)
   local skill_names = require("dwight.skills").names()
   local skill_set = {}
   for _, n in ipairs(skill_names) do skill_set[n] = true end
@@ -163,17 +162,14 @@ local function highlight_prompt_buf(buf)
 end
 
 --------------------------------------------------------------------
--- Completion: omnifunc-based (stable, with fuzzy matching)
+-- Completion: omnifunc with noselect
 --------------------------------------------------------------------
 
--- The source buffer (the one with LSP) — set when prompt opens
 M._source_bufnr = nil
 
---- Find the token trigger (@, /, #) and what's been typed after it.
 local function find_token_at_cursor()
   local line = api.nvim_get_current_line()
-  local col = api.nvim_win_get_cursor(0)[2]  -- 0-indexed
-
+  local col = api.nvim_win_get_cursor(0)[2]
   local start = col
   while start > 0 do
     local c = line:sub(start, start)
@@ -186,18 +182,13 @@ local function find_token_at_cursor()
   return nil, "", col
 end
 
---- The omnifunc: called by nvim's completion engine.
 function M.omnifunc(findstart, base)
   if findstart == 1 then
-    -- Return the 0-indexed byte position where the token starts
     local trigger, _, start_pos = find_token_at_cursor()
-    if trigger then
-      return start_pos - 1  -- 0-indexed, includes the trigger char
-    end
-    return -3  -- cancel
+    if trigger then return start_pos - 1 end
+    return -3
   end
 
-  -- Build completions based on what was typed
   local items = {}
   local trigger = base:sub(1, 1)
   local typed = base:sub(2):lower()
@@ -205,12 +196,7 @@ function M.omnifunc(findstart, base)
   if trigger == "@" then
     for _, name in ipairs(require("dwight.skills").names()) do
       if typed == "" or name:lower():find(typed, 1, true) then
-        items[#items + 1] = {
-          word = "@" .. name,
-          menu = "[skill]",
-          info = "Skill: " .. name,
-          icase = 1,
-        }
+        items[#items + 1] = { word = "@" .. name, menu = "[skill]", icase = 1 }
       end
     end
   elseif trigger == "/" then
@@ -218,16 +204,10 @@ function M.omnifunc(findstart, base)
     for _, name in ipairs(modes.list()) do
       if typed == "" or name:lower():find(typed, 1, true) then
         local m = modes.get(name)
-        items[#items + 1] = {
-          word = "/" .. name,
-          menu = m.icon .. " " .. m.name,
-          info = m.description or "",
-          icase = 1,
-        }
+        items[#items + 1] = { word = "/" .. name, menu = m.icon .. " " .. m.name, icase = 1 }
       end
     end
   elseif trigger == "#" then
-    -- LSP workspace symbol search
     if #typed >= 1 then
       local ok, syms = pcall(function()
         return require("dwight.symbols").search(typed, 20, M._source_bufnr)
@@ -252,15 +232,16 @@ end
 -- Floating Prompt Window
 --------------------------------------------------------------------
 
+--- The divider line index (0-based) — everything above is editable, at and below is read-only help.
+local EDITABLE_LINES = 6
+
 function M.open_prompt(selection, _preset_mode)
   local cfg = require("dwight").config
-
-  -- Store the source buffer so omnifunc can use its LSP for #symbol search
   M._source_bufnr = selection.bufnr
 
-  local width = math.floor(vim.o.columns * 0.55)
-  local height = 5
-  width = math.max(width, 50)
+  local width = math.floor(vim.o.columns * 0.6)
+  width = math.max(width, 55)
+  local height = EDITABLE_LINES + 6  -- editable + divider + help lines
 
   local row = math.floor((vim.o.lines - height) / 2)
   local col = math.floor((vim.o.columns - width) / 2)
@@ -269,16 +250,28 @@ function M.open_prompt(selection, _preset_mode)
   vim.bo[buf].buftype = "nofile"
   vim.bo[buf].filetype = "dwight_prompt"
   vim.bo[buf].bufhidden = "wipe"
-
-  -- KEY FIX: Set completeopt so the popup doesn't auto-insert
   vim.bo[buf].omnifunc = "v:lua.require'dwight.ui'.omnifunc"
 
   local file_info = string.format("%d lines · %s",
     selection.end_line - selection.start_line + 1,
     vim.fn.fnamemodify(selection.filepath or "", ":t"))
 
-  local prefill = { "", "", "", "─── " .. file_info .. " ───", "" }
-  api.nvim_buf_set_lines(buf, 0, -1, false, prefill)
+  -- Build buffer content: editable area + divider + static help
+  local content = {}
+  -- Editable lines (user types here)
+  for _ = 1, EDITABLE_LINES do
+    content[#content + 1] = ""
+  end
+  -- Divider (read-only below this)
+  content[#content + 1] = "─── " .. file_info .. " ───"
+  -- Static help
+  content[#content + 1] = "  @skill    load coding guidelines"
+  content[#content + 1] = "  /mode     refactor · fix · code · document · optimize …"
+  content[#content + 1] = "  #symbol   include function/type from other files"
+  content[#content + 1] = "  <CR> submit   <Esc> normal   q quit   <Tab> complete"
+  content[#content + 1] = ""
+
+  api.nvim_buf_set_lines(buf, 0, -1, false, content)
 
   local win = api.nvim_open_win(buf, true, {
     relative = "editor",
@@ -286,7 +279,7 @@ function M.open_prompt(selection, _preset_mode)
     row = row, col = col,
     style = "minimal",
     border = cfg.border,
-    title = " dwight · Esc then ? help · q quit ",
+    title = " dwight ",
     title_pos = "center",
   })
 
@@ -295,29 +288,52 @@ function M.open_prompt(selection, _preset_mode)
   vim.wo[win].wrap       = true
   vim.wo[win].linebreak  = true
 
-  -- CRITICAL: noinsert + noselect prevents auto-inserting first match
+  -- Highlight the help area as comments (dimmed)
+  local help_ns = api.nvim_create_namespace("dwight_help_hl")
+  for i = EDITABLE_LINES, #content - 1 do
+    api.nvim_buf_add_highlight(buf, help_ns, "Comment", i, 0, -1)
+  end
+
+  -- Protect help lines: prevent cursor from entering read-only zone
+  api.nvim_create_autocmd("CursorMoved", {
+    buffer = buf,
+    callback = function()
+      local cursor = api.nvim_win_get_cursor(win)
+      if cursor[1] > EDITABLE_LINES then
+        api.nvim_win_set_cursor(win, { EDITABLE_LINES, cursor[2] })
+      end
+    end,
+  })
+  api.nvim_create_autocmd("CursorMovedI", {
+    buffer = buf,
+    callback = function()
+      local cursor = api.nvim_win_get_cursor(win)
+      if cursor[1] > EDITABLE_LINES then
+        api.nvim_win_set_cursor(win, { EDITABLE_LINES, cursor[2] })
+      end
+    end,
+  })
+
+  -- Set completeopt, restore on close
   local saved_completeopt = vim.o.completeopt
   vim.opt.completeopt = "menuone,noinsert,noselect"
 
-  -- Restore completeopt when the buffer is wiped
   api.nvim_create_autocmd("BufWipeout", {
-    buffer = buf,
-    once = true,
-    callback = function()
-      vim.opt.completeopt = saved_completeopt
-    end,
+    buffer = buf, once = true,
+    callback = function() vim.opt.completeopt = saved_completeopt end,
   })
 
   api.nvim_win_set_cursor(win, { 1, 0 })
   vim.cmd("startinsert")
 
-  -- Live highlighting
-  highlight_prompt_buf(buf)
+  -- Live highlighting (only editable area)
+  highlight_prompt_buf(buf, EDITABLE_LINES)
   api.nvim_create_autocmd({ "TextChangedI", "TextChanged" }, {
-    buffer = buf, callback = function() highlight_prompt_buf(buf) end,
+    buffer = buf,
+    callback = function() highlight_prompt_buf(buf, EDITABLE_LINES) end,
   })
 
-  -- Trigger omnifunc when @, /, # are typed
+  -- Trigger omnifunc on @, /, #
   api.nvim_create_autocmd("InsertCharPre", {
     buffer = buf,
     callback = function()
@@ -332,7 +348,7 @@ function M.open_prompt(selection, _preset_mode)
     end,
   })
 
-  -- Re-trigger omnifunc as user types after @/# / to update fuzzy results
+  -- Re-trigger as user types after trigger char
   api.nvim_create_autocmd("TextChangedI", {
     buffer = buf,
     callback = function()
@@ -348,9 +364,7 @@ function M.open_prompt(selection, _preset_mode)
     end,
   })
 
-  local bopts = { buffer = buf, noremap = true, silent = true }
-
-  -- Tab / S-Tab: navigate completion popup
+  -- Tab / S-Tab
   vim.keymap.set("i", "<Tab>", function()
     if vim.fn.pumvisible() == 1 then
       return api.nvim_replace_termcodes("<C-n>", true, false, true)
@@ -366,14 +380,15 @@ function M.open_prompt(selection, _preset_mode)
     return ""
   end, { buffer = buf, expr = true })
 
-  -- Enter: accept completion item OR submit prompt
+  -- Enter: accept completion or submit
   vim.keymap.set("i", "<CR>", function()
     if vim.fn.pumvisible() == 1 then
       return api.nvim_replace_termcodes("<C-y>", true, false, true)
     end
 
     vim.schedule(function()
-      local input_lines = api.nvim_buf_get_lines(buf, 0, 3, false)
+      -- Read only the editable lines
+      local input_lines = api.nvim_buf_get_lines(buf, 0, EDITABLE_LINES, false)
       local raw_text = vim.trim(table.concat(input_lines, " "))
 
       if api.nvim_win_is_valid(win) then api.nvim_win_close(win, true) end
@@ -409,50 +424,28 @@ function M.open_prompt(selection, _preset_mode)
     return ""
   end, { buffer = buf, expr = true })
 
-  -- ? toggle help (works in BOTH normal and insert mode)
-  local help_visible = false
-  local help_ns = api.nvim_create_namespace("dwight_help_" .. buf)
-
-  local function toggle_help()
-    if help_visible then
-      api.nvim_buf_clear_namespace(buf, help_ns, 0, -1)
-      help_visible = false
-    else
-      -- Use a SINGLE extmark with multiple virt_lines on the last buffer line
-      local last_line = api.nvim_buf_line_count(buf) - 1
-      api.nvim_buf_set_extmark(buf, help_ns, last_line, 0, {
-        virt_lines = {
-          { { "  @skill ", "DwightSkill" }, { " load coding guidelines", "Comment" } },
-          { { "  /mode  ", "DwightMode" }, { " set operation (refactor, fix, code…)", "Comment" } },
-          { { "  #symbol", "DwightSymbol" }, { " include function/type from other files", "Comment" } },
-          { { "  <CR>   ", "Special" }, { " submit   ", "Comment" },
-            { "<Esc> ", "Special" }, { "cancel   ", "Comment" },
-            { "<Tab> ", "Special" }, { "complete", "Comment" } },
-        },
-        virt_lines_above = false,
-      })
-      help_visible = true
-    end
-  end
-
-  vim.keymap.set("n", "?", toggle_help, bopts)
-  vim.keymap.set("i", "<C-h>", toggle_help, { buffer = buf, noremap = true })
-
-  -- q to close (normal mode). Esc exits insert → normal, where ? works.
-  vim.keymap.set("n", "q", function()
-    if api.nvim_win_is_valid(win) then api.nvim_win_close(win, true) end
-  end, bopts)
-
-  -- Esc in insert mode: close popup if visible, otherwise go to normal mode
+  -- Esc: go to normal mode (so user can navigate, press q)
   vim.keymap.set("i", "<Esc>", function()
     if vim.fn.pumvisible() == 1 then
-      -- Close completion popup, stay in insert
       return api.nvim_replace_termcodes("<C-e>", true, false, true)
     end
-    -- Go to normal mode so user can press ? for help or q to quit
     vim.cmd("stopinsert")
     return ""
   end, { buffer = buf, expr = true })
+
+  -- q: close (normal mode only)
+  vim.keymap.set("n", "q", function()
+    if api.nvim_win_is_valid(win) then api.nvim_win_close(win, true) end
+  end, { buffer = buf, noremap = true, silent = true })
+
+  -- i to re-enter insert (standard vim, but make sure cursor stays in editable zone)
+  vim.keymap.set("n", "i", function()
+    local cursor = api.nvim_win_get_cursor(win)
+    if cursor[1] > EDITABLE_LINES then
+      api.nvim_win_set_cursor(win, { EDITABLE_LINES, 0 })
+    end
+    vim.cmd("startinsert")
+  end, { buffer = buf, noremap = true })
 end
 
 return M

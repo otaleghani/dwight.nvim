@@ -1,16 +1,29 @@
--- dwight.nvim: "I'm not superstitious, but I am a little stitious." — Michael Scott
+-- dwight.nvim
 -- A developer-centered AI coding assistant for Neovim.
 
 local M = {}
 
-M._version = "1.0.0"
+M._version = "1.1.0"
 
 local function require_mod(name)
   return require("dwight." .. name)
 end
 
 M.defaults = {
+  -- Backend: "api" (direct Claude API, lean) or "opencode" (CLI, agent mode)
+  backend = "api",
+
+  -- Direct API settings (backend = "api")
+  api_key = nil,              -- or set ANTHROPIC_API_KEY env var
+  api_base_url = nil,         -- defaults to https://api.anthropic.com
+  model = "claude-sonnet-4-20250514",
+  max_tokens = 4096,
+
+  -- opencode CLI settings (backend = "opencode")
   opencode_bin = "opencode",
+  opencode_flags = {},
+
+  -- Shared settings
   default_skills = {},
   lsp_context_lines = 80,
   include_diagnostics = true,
@@ -19,12 +32,9 @@ M.defaults = {
   max_references = 10,
   indicator_style = "both",
   indicator_sign = "⟳",
-  indicator_text = " ⏳ dwight processing…",
   indicator_hl = "DwightProcessing",
   border = "rounded",
   comment_styles = nil,
-  model = nil,
-  opencode_flags = {},
   timeout = 120000,
 }
 
@@ -74,31 +84,20 @@ function M._register_commands()
     if o.args == "all" then M.cancel_all() else M.cancel() end
   end, { nargs = "?", complete = function() return { "all" } end, desc = "Cancel job(s)" })
 
-  -- Project
   cmd("DwightInit", function() require_mod("project").init() end, { desc = "Initialize project" })
-
-  -- Skills
   cmd("DwightSkills", function() require_mod("skills").pick() end, { desc = "Browse skills" })
   cmd("DwightGenSkill", function() require_mod("skills").generate() end, { desc = "Generate skill" })
   cmd("DwightInstallSkills", function() require_mod("project").install_builtins() end, { desc = "Install built-in skills" })
-
-  -- Docs
   cmd("DwightDocs", function() require_mod("docs").generate_from_url() end, { desc = "Skill from docs URL" })
-
-  -- Log
   cmd("DwightLog", function() require_mod("log").show() end, { desc = "Job log" })
-
-  -- Runner (build/test)
   cmd("DwightRun", function(o) require_mod("runner").run_interactive(o.args) end,
     { nargs = "?", desc = "Run build/test command" })
-  cmd("DwightRunOutput", function() require_mod("runner").show_output() end,
-    { desc = "Show last run output" })
-
-  -- Info
+  cmd("DwightRunOutput", function() require_mod("runner").show_output() end, { desc = "Show last run output" })
   cmd("DwightUsage", function() require_mod("tracker").show() end, { desc = "Usage stats" })
   cmd("DwightModel", function()
-    vim.notify("[dwight] Model: " .. require_mod("tracker").get_model(), vim.log.levels.INFO)
-  end, { desc = "Show model" })
+    vim.notify(string.format("[dwight] Backend: %s | Model: %s",
+      M.config.backend, M.config.model or "(default)"), vim.log.levels.INFO)
+  end, { desc = "Show backend/model" })
   cmd("DwightStatus", function() M.status() end, { desc = "Full status" })
 end
 
@@ -189,7 +188,7 @@ function M.status()
   local project = require_mod("project")
   local runner  = require_mod("runner")
   local lines = {
-    "Model: " .. tracker.get_model(),
+    "Backend: " .. M.config.backend .. " | Model: " .. (M.config.model or "(default)"),
     "Project: " .. (project.is_initialized() and "✅ " .. project.dir() or "❌ :DwightInit"),
     "Skills: " .. #require_mod("skills").list(),
     "Session: " .. tracker._session.invocations .. " invocations",
@@ -206,11 +205,10 @@ function M.status()
   for id, job in pairs(M._active_jobs) do
     job_count = job_count + 1
     local name = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(job.bufnr), ":t")
-    lines[#lines + 1] = string.format("  #%d: %s %d-%d (%s, %ds)",
-      id, name, job.start_line, job.end_line, job.mode, os.time() - (job.started or os.time()))
+    lines[#lines + 1] = string.format("  #%d: %s %d-%d (%s)", id, name, job.start_line, job.end_line, job.mode)
   end
-
   lines[#lines + 1] = job_count > 0 and (job_count .. " jobs running") or "No active jobs"
+
   vim.notify("[dwight]\n" .. table.concat(lines, "\n"), vim.log.levels.INFO)
 end
 

@@ -74,7 +74,6 @@ function M.init()
 end
 
 function M._generate_scope(description)
-  local cfg = require("dwight").config
   local log = require("dwight.log")
 
   local prompt = string.format([[
@@ -82,103 +81,44 @@ Generate a project scope document for an AI coding assistant. The developer desc
 
 "%s"
 
-Also, here are some files in the project root that might help you understand the stack:
-%s
+Config files found: %s
 
-Create a practical markdown document with these sections:
-- ## What This Project Does (2-3 sentences)
-- ## Tech Stack (list the key technologies, frameworks, versions)
-- ## Architecture (brief overview of how the code is organized)
-- ## Conventions (coding style, naming, patterns the team follows)
-- ## Important Constraints (things the AI should never do or always do)
-- ## Directory Structure Notes (what lives where)
-
-Be specific and actionable. This document will be read by an AI to produce better code.
-Keep it under 80 lines. Reply with ONLY the markdown inside a fenced code block.
+Create practical markdown with: What This Project Does, Tech Stack, Architecture, Conventions, Important Constraints, Directory Structure Notes.
+Under 80 lines. Reply with ONLY markdown in a fenced code block.
 ]], description, M._scan_project_hints())
 
-  local tmpfile = vim.fn.tempname() .. "_init_prompt.md"
-  local f = io.open(tmpfile, "w")
-  if not f then M._init_with_content("# Project Scope\n\n" .. description); return end
-  f:write(prompt)
-  f:close()
-
-  local wrapper = vim.fn.tempname() .. "_init_run.sh"
-  local wf = io.open(wrapper, "w")
-  if not wf then os.remove(tmpfile); M._init_with_content("# Project Scope\n\n" .. description); return end
-  wf:write("#!/bin/sh\n")
-  wf:write(string.format('%s run "$(cat %s)"\n', cfg.opencode_bin, tmpfile))
-  wf:close()
-  os.execute("chmod +x " .. vim.fn.shellescape(wrapper))
-
-  -- Log it
   local job_id = log._next_id()
   log.start(job_id, "project-init", vim.api.nvim_get_current_buf(), 0, 0, prompt)
 
-  local stdout_chunks = {}
-  local stderr_chunks = {}
-  local stdout = uv.new_pipe(false)
-  local stderr = uv.new_pipe(false)
+  require("dwight.skills")._run_llm(prompt, function(raw, code)
+    if code ~= 0 or vim.trim(raw) == "" then
+      log.finish(job_id, "error", raw, nil, "AI generation failed (exit " .. code .. ")")
+      vim.notify("[dwight] AI generation failed. Creating template instead.", vim.log.levels.WARN)
+      M._init_with_content("# Project Scope\n\n" .. description)
+      return
+    end
 
-  local handle
-  handle = uv.spawn("sh", {
-    args = { wrapper },
-    stdio = { nil, stdout, stderr },
-    cwd = vim.fn.getcwd(),
-  }, function(code, _signal)
-    if stdout then stdout:close() end
-    if stderr then stderr:close() end
-    if handle then handle:close() end
-    pcall(os.remove, tmpfile)
-    pcall(os.remove, wrapper)
+    local content
+    local blocks = {}
+    for block in raw:gmatch("```%w*\n(.-)\n```") do blocks[#blocks + 1] = block end
+    if #blocks > 0 then
+      content = blocks[1]
+      for i = 2, #blocks do if #blocks[i] > #content then content = blocks[i] end end
+    else
+      content = raw:gsub("^[^\n]*[Hh]ere.-\n", "")
+    end
 
-    vim.schedule(function()
-      local raw = table.concat(stdout_chunks, "")
+    log.finish(job_id, "success", raw, content, nil)
+    M._init_with_content(content)
 
-      if code ~= 0 or vim.trim(raw) == "" then
-        log.finish(job_id, "error", raw, nil, "AI generation failed (exit " .. code .. ")")
-        vim.notify("[dwight] AI generation failed. Creating template instead.", vim.log.levels.WARN)
-        M._init_with_content("# Project Scope\n\n" .. description)
-        return
-      end
-
-      -- Extract from fences
-      local content
-      local blocks = {}
-      for block in raw:gmatch("```%w*\n(.-)\n```") do blocks[#blocks + 1] = block end
-      if #blocks > 0 then
-        content = blocks[1]
-        for i = 2, #blocks do
-          if #blocks[i] > #content then content = blocks[i] end
-        end
-      else
-        content = raw:gsub("^[^\n]*[Hh]ere.-\n", "")
-      end
-
-      log.finish(job_id, "success", raw, content, nil)
-      M._init_with_content(content)
-
-      -- Copy built-in skills
-      local copied = M._copy_builtin_skills()
-
-      local msg = "📎 [dwight] Project initialized! Review and edit project.md."
-      if #copied > 0 then
-        msg = msg .. "\nBuilt-in skills: " ..
-          table.concat(vim.tbl_map(function(n) return "@" .. n end, copied), ", ")
-      end
-      vim.notify(msg, vim.log.levels.INFO)
-    end)
+    local copied = M._copy_builtin_skills()
+    local msg = "📎 [dwight] Project initialized! Review and edit project.md."
+    if #copied > 0 then
+      msg = msg .. "\nBuilt-in skills: " ..
+        table.concat(vim.tbl_map(function(n) return "@" .. n end, copied), ", ")
+    end
+    vim.notify(msg, vim.log.levels.INFO)
   end)
-
-  if not handle then
-    pcall(os.remove, tmpfile)
-    pcall(os.remove, wrapper)
-    M._init_with_content("# Project Scope\n\n" .. description)
-    return
-  end
-
-  stdout:read_start(function(err, data) if not err and data then stdout_chunks[#stdout_chunks + 1] = data end end)
-  stderr:read_start(function(err, data) if not err and data then stderr_chunks[#stderr_chunks + 1] = data end end)
 end
 
 --- Scan project root for hint files (package.json, Cargo.toml, etc.)

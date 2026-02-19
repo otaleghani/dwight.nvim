@@ -91,7 +91,7 @@ Documentation:
   local job_id = log._next_id()
   log.start(job_id, "gen-docs:" .. name, vim.api.nvim_get_current_buf(), 0, 0, prompt)
 
-  require("dwight.skills")._run_opencode(prompt, function(raw, code)
+  require("dwight.skills")._run_llm(prompt, function(raw, code)
     if code ~= 0 or vim.trim(raw) == "" then
       log.finish(job_id, "error", raw, nil, "Generation failed")
       vim.notify("[dwight] Generation failed. Creating template.", vim.log.levels.WARN)

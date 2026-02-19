@@ -1,6 +1,6 @@
 # dwight.nvim
 
-> "Assistant to the regional coder."
+*"I'm not superstitious, but I am a little stitious."*
 
 **A developer-centered AI coding assistant for Neovim.**
 
@@ -19,8 +19,11 @@ Most coding agents take the steering wheel. **dwight.nvim** keeps you in the dri
 
 ## Requirements
 
-- **Neovim** ≥ 0.11+
-- **[opencode](https://github.com/opencode-ai/opencode)** CLI installed and in PATH
+- **Neovim** 0.11+
+- **One of:**
+  - `ANTHROPIC_API_KEY` env var (for direct API mode — **recommended**, lean and predictable)
+  - [opencode](https://github.com/opencode-ai/opencode) CLI (agent mode, higher token usage)
+- `curl` (for direct API mode)
 - An LSP server for your language (optional but recommended)
 - [Telescope](https://github.com/nvim-telescope/telescope.nvim) (optional, enhances pickers)
 
@@ -39,6 +42,7 @@ return {
 return {
   "otaleghani/dwight.nvim",
   opts = {},
+  version = "*",
   keys = {
     -- Visual mode mappings
     { "<leader>ai", "<cmd>DwightInvoke<CR>",           mode = "v", desc = "Dwight: prompt" },
@@ -72,15 +76,22 @@ Or set up keymaps (see [Keymaps](#keymaps) below) for faster access.
 
 ## The Prompt
 
-The prompt is minimal — just a small input area. Type freely. No header clutter.
+The prompt is a proper scratch buffer — full vim editing, undo, paste. Help is always visible below the divider.
 
 ```
-┌──────── dwight ────────┐
-│ /refactor @clean-code  │
-│ extract the validation │
-│ logic #validateUser    │
-│─── 15 lines · main.ts ─│
-└────────────────────────┘
+┌──────────────── dwight ────────────────┐
+│ /refactor @clean-code                  │
+│ extract the validation                 │
+│ logic #validateUser                    │
+│                                        │
+│                                        │
+│                                        │
+│─── 15 lines · main.ts ────────────────│
+│  @skill    load coding guidelines      │
+│  /mode     refactor · fix · code …     │
+│  #symbol   include from other files    │
+│  <CR> submit   <Esc> normal   q quit   │
+└────────────────────────────────────────┘
 ```
 
 | Token | What it does |
@@ -89,7 +100,7 @@ The prompt is minimal — just a small input area. Type freely. No header clutte
 | `/mode-name` | Sets the operation mode |
 | `#symbol-name` | Includes a function/type from another file via LSP |
 
-Press `?` in normal mode to toggle a help overlay. `<CR>` submits. `<Esc>`/`q` cancels.
+`<CR>` submits. `<Esc>` goes to normal mode. `q` closes. `<Tab>` triggers/cycles completion.
 
 Completion is fuzzy — just keep typing after `@`, `/`, or `#` to filter.
 
@@ -155,12 +166,13 @@ Edit or delete any. `:DwightInstallSkills` adds new ones after a plugin update.
 ### Create Your Own
 
 ```bash
-nvim .dwight/skills/my-rules.md            # Manual
+vim .dwight/skills/my-rules.md            # Manual
 :DwightGenSkill                            # AI-generated
 :DwightDocs                                # From a documentation URL
 ```
 
 ## Job Log
+
 ```
 :DwightLog
 ```
@@ -191,13 +203,38 @@ In Telescope: **Enter** → jump to code, **Ctrl-k** → kill running job, **Ctr
 
 ```lua
 require("dwight").setup({
+  -- Backend: "api" (recommended) or "opencode"
+  backend = "api",
+
+  -- Direct API (backend = "api") — lean, one request per invocation
+  -- Set ANTHROPIC_API_KEY env var, or:
+  api_key = nil,
+  model = "claude-sonnet-4-20250514",
+  max_tokens = 4096,
+  api_base_url = nil,           -- defaults to https://api.anthropic.com
+
+  -- opencode CLI (backend = "opencode") — agent mode, higher token usage
   opencode_bin = "opencode",
-  model = nil,                    -- override model
-  default_skills = {},            -- always-loaded skills
+  opencode_flags = {},
+
+  -- Shared
+  default_skills = {},
   lsp_context_lines = 80,
   timeout = 120000,
 })
 ```
+
+### Why direct API?
+
+With `backend = "api"`, dwight sends exactly **one request** to Claude per invocation. Your prompt, the code, LSP context — that's it. Typical usage is **1000–2000 input tokens** per request.
+
+With `backend = "opencode"`, the opencode CLI adds its own system prompt, tool definitions, and may run multi-step agent loops behind the scenes. This can result in **10–50x higher token usage** for the same task, plus background requests you didn't initiate. If you've seen unexpected API charges, this is likely why.
+
+**If you want to use opencode**, you can reduce its overhead:
+- Set `OPENCODE_AUTO_COMPACT=false` to disable automatic context compaction
+- Use `--no-tools` flag if supported by your version
+- Check `~/.config/opencode/config.yaml` for background features like auto-save or indexing
+- Consider running `opencode` with `--verbose` once to see what requests it makes
 
 ## Keymaps
 

@@ -27,14 +27,15 @@ project.md and built-in skills.
 
 3. PROMPT                                                     *dwight-prompt*
 
-Select code in visual mode, then <leader>ai to open the prompt.
+Select code in visual mode, then :DwightInvoke to open the prompt.
+The prompt is a full scratch buffer with static help below the divider.
 Type freely. Use inline tokens:
 
   @skill-name     Load a skill (coding guidelines)
   /mode-name      Set operation mode
   #symbol-name    Include source code from another file (via LSP)
 
-Press ? in normal mode to toggle help. <CR> to submit. <Esc>/q to cancel.
+<CR> submit. <Esc> normal mode. q close. <Tab> trigger/cycle completion.
 Completion is fuzzy — keep typing after @, /, # to filter.
 
 4. MODES                                                       *dwight-modes*

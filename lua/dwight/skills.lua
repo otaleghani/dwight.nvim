@@ -173,7 +173,7 @@ Reply with ONLY markdown inside a fenced code block.
         local job_id = log._next_id()
         log.start(job_id, "gen-skill:" .. name, vim.api.nvim_get_current_buf(), 0, 0, prompt)
 
-        M._run_opencode(prompt, function(raw, code)
+        M._run_llm(prompt, function(raw, code)
           if code ~= 0 or vim.trim(raw) == "" then
             log.finish(job_id, "error", raw, nil, "Generation failed")
             M._write_template(output_path, name, desc, patterns)
@@ -205,8 +205,88 @@ Reply with ONLY markdown inside a fenced code block.
   end)
 end
 
---- Shared helper to run opencode and return output.
-function M._run_opencode(prompt, callback)
+--- Shared helper: run LLM (api or opencode) and return output.
+function M._run_llm(prompt, callback)
+  local cfg = require("dwight").config
+
+  if cfg.backend == "api" then
+    M._run_api(prompt, callback)
+  else
+    M._run_opencode_cli(prompt, callback)
+  end
+end
+
+function M._run_api(prompt, callback)
+  local cfg = require("dwight").config
+  local api_key = cfg.api_key or os.getenv("ANTHROPIC_API_KEY")
+  if not api_key or api_key == "" then
+    vim.notify("[dwight] No ANTHROPIC_API_KEY set.", vim.log.levels.ERROR)
+    callback("", 1)
+    return
+  end
+
+  local model = cfg.model or "claude-sonnet-4-20250514"
+  local payload = vim.json.encode({
+    model = model,
+    max_tokens = cfg.max_tokens or 4096,
+    messages = { { role = "user", content = prompt } },
+  })
+
+  local payload_file = vim.fn.tempname() .. "_dwight_api.json"
+  local f = io.open(payload_file, "w")
+  if not f then callback("", 1); return end
+  f:write(payload); f:close()
+
+  local base_url = cfg.api_base_url or "https://api.anthropic.com"
+  local stdout_chunks = {}
+  local stdout = uv.new_pipe(false)
+  local stderr = uv.new_pipe(false)
+
+  local handle
+  handle = uv.spawn("curl", {
+    args = {
+      "-sS", "--max-time", "120",
+      "-X", "POST", base_url .. "/v1/messages",
+      "-H", "Content-Type: application/json",
+      "-H", "x-api-key: " .. api_key,
+      "-H", "anthropic-version: 2023-06-01",
+      "-d", "@" .. payload_file,
+    },
+    stdio = { nil, stdout, stderr },
+  }, function(code)
+    if stdout then stdout:close() end
+    if stderr then stderr:close() end
+    if handle then handle:close() end
+    pcall(os.remove, payload_file)
+
+    vim.schedule(function()
+      local raw_json = table.concat(stdout_chunks, "")
+      if code ~= 0 then callback("", code); return end
+
+      local ok, resp = pcall(vim.json.decode, raw_json)
+      if not ok or resp.error then callback("", 1); return end
+
+      local parts = {}
+      if resp.content then
+        for _, block in ipairs(resp.content) do
+          if block.type == "text" then parts[#parts + 1] = block.text end
+        end
+      end
+      callback(table.concat(parts, "\n"), 0)
+    end)
+  end)
+
+  if not handle then
+    pcall(os.remove, payload_file)
+    callback("", 1)
+    return
+  end
+
+  stdout:read_start(function(err, data) if not err and data then stdout_chunks[#stdout_chunks + 1] = data end end)
+  stderr:read_start(function() end)
+end
+
+function M._run_opencode_cli(prompt, callback)
   local cfg = require("dwight").config
 
   local tmpfile = vim.fn.tempname() .. "_dwight_prompt.md"
