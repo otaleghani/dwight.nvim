@@ -1,6 +1,6 @@
 -- dwight/ui.lua
 -- Minimal floating prompt with fuzzy inline completion for @skills /modes #symbols.
--- No header clutter. Press ? to toggle help. Just type and go.
+-- No header. Press ? to toggle help. Just type and go.
 
 local M = {}
 
@@ -58,7 +58,6 @@ function M.show_indicators(job_id, bufnr, start_line, end_line)
 
   local frame = 1
   local timer = (vim.loop or vim.uv).new_timer()
-
   M._job_indicators[job_id] = {
     ns = ns, sign_group = sign_group, timer = timer,
     bufnr = bufnr, start_line = start_line, end_line = end_line,
@@ -97,7 +96,7 @@ function M.update_indicator_range(job_id, new_start, new_end)
 end
 
 --------------------------------------------------------------------
--- Token Parsing (now with #symbols)
+-- Token Parsing (with #symbols)
 --------------------------------------------------------------------
 
 function M.parse_tokens(text)
@@ -105,12 +104,8 @@ function M.parse_tokens(text)
   local symbols = {}
   local mode = nil
 
-  for skill in text:gmatch("@([%w_%-%.]+)") do
-    skills[#skills + 1] = skill
-  end
-  for sym in text:gmatch("#([%w_%-%.]+)") do
-    symbols[#symbols + 1] = sym
-  end
+  for skill in text:gmatch("@([%w_%-%.]+)") do skills[#skills + 1] = skill end
+  for sym in text:gmatch("#([%w_%-%.]+)") do symbols[#symbols + 1] = sym end
   mode = text:match("/(%w[%w_]*)")
 
   local clean = text
@@ -134,14 +129,12 @@ local function highlight_prompt_buf(buf)
   local skill_names = require("dwight.skills").names()
   local skill_set = {}
   for _, n in ipairs(skill_names) do skill_set[n] = true end
-
   local mode_names = require("dwight.modes").list()
   local mode_set = {}
   for _, n in ipairs(mode_names) do mode_set[n] = true end
 
   for i, line in ipairs(lines) do
     local row = i - 1
-    -- @skill tokens
     local pos = 1
     while true do
       local s, e, name = line:find("@([%w_%-%.]+)", pos)
@@ -150,7 +143,6 @@ local function highlight_prompt_buf(buf)
       api.nvim_buf_add_highlight(buf, ns_hl, hl, row, s - 1, e)
       pos = e + 1
     end
-    -- /mode tokens
     pos = 1
     while true do
       local s, e, name = line:find("/(%w[%w_]*)", pos)
@@ -160,7 +152,6 @@ local function highlight_prompt_buf(buf)
       end
       pos = e + 1
     end
-    -- #symbol tokens
     pos = 1
     while true do
       local s, e = line:find("#[%w_%-%.]+", pos)
@@ -172,21 +163,54 @@ local function highlight_prompt_buf(buf)
 end
 
 --------------------------------------------------------------------
--- Fuzzy Completion Engine
+-- Completion: omnifunc-based (stable, with fuzzy matching)
 --------------------------------------------------------------------
 
---- Build completion items matching a prefix with fuzzy logic.
----@param trigger string "@", "/", or "#"
----@param typed string What the user typed after the trigger
----@return table[] Completion items { word, menu, info }
-local function get_completions(trigger, typed)
+-- The source buffer (the one with LSP) — set when prompt opens
+M._source_bufnr = nil
+
+--- Find the token trigger (@, /, #) and what's been typed after it.
+local function find_token_at_cursor()
+  local line = api.nvim_get_current_line()
+  local col = api.nvim_win_get_cursor(0)[2]  -- 0-indexed
+
+  local start = col
+  while start > 0 do
+    local c = line:sub(start, start)
+    if c == "@" or c == "/" or c == "#" then
+      return c, line:sub(start + 1, col), start
+    end
+    if not c:match("[%w_%-%.@/#]") then break end
+    start = start - 1
+  end
+  return nil, "", col
+end
+
+--- The omnifunc: called by nvim's completion engine.
+function M.omnifunc(findstart, base)
+  if findstart == 1 then
+    -- Return the 0-indexed byte position where the token starts
+    local trigger, _, start_pos = find_token_at_cursor()
+    if trigger then
+      return start_pos - 1  -- 0-indexed, includes the trigger char
+    end
+    return -3  -- cancel
+  end
+
+  -- Build completions based on what was typed
   local items = {}
-  typed = typed:lower()
+  local trigger = base:sub(1, 1)
+  local typed = base:sub(2):lower()
 
   if trigger == "@" then
     for _, name in ipairs(require("dwight.skills").names()) do
       if typed == "" or name:lower():find(typed, 1, true) then
-        items[#items + 1] = { word = "@" .. name, menu = "[skill]" }
+        items[#items + 1] = {
+          word = "@" .. name,
+          menu = "[skill]",
+          info = "Skill: " .. name,
+          icase = 1,
+        }
       end
     end
   elseif trigger == "/" then
@@ -194,71 +218,34 @@ local function get_completions(trigger, typed)
     for _, name in ipairs(modes.list()) do
       if typed == "" or name:lower():find(typed, 1, true) then
         local m = modes.get(name)
-        items[#items + 1] = { word = "/" .. name, menu = m.icon .. " " .. m.name }
+        items[#items + 1] = {
+          word = "/" .. name,
+          menu = m.icon .. " " .. m.name,
+          info = m.description or "",
+          icase = 1,
+        }
       end
     end
   elseif trigger == "#" then
-    -- Workspace symbol search (debounced — only search if >= 2 chars)
-    if #typed >= 2 then
-      local syms = require("dwight.symbols").search(typed, 15)
-      for _, s in ipairs(syms) do
-        local file = vim.fn.fnamemodify(s.filepath, ":t")
-        items[#items + 1] = {
-          word = "#" .. s.name,
-          menu = string.format("[%s] %s:%d", s.kind, file, s.line),
-        }
+    -- LSP workspace symbol search
+    if #typed >= 1 then
+      local ok, syms = pcall(function()
+        return require("dwight.symbols").search(typed, 20, M._source_bufnr)
+      end)
+      if ok and syms then
+        for _, s in ipairs(syms) do
+          local file = vim.fn.fnamemodify(s.filepath, ":t")
+          items[#items + 1] = {
+            word = "#" .. s.name,
+            menu = string.format("[%s] %s:%d", s.kind, file, s.line),
+            icase = 1,
+          }
+        end
       end
     end
   end
 
   return items
-end
-
---- Find the current token being typed (the @/# /word under cursor).
----@param buf number
----@return string|nil trigger, string typed, number start_col
-local function get_current_token(buf)
-  local line = api.nvim_get_current_line()
-  local col = api.nvim_win_get_cursor(0)[2]  -- 0-indexed byte position
-
-  -- Walk backwards to find @, /, or #
-  local start = col
-  while start > 0 do
-    local c = line:sub(start, start)
-    if c == "@" or c == "/" or c == "#" then
-      local trigger = c
-      local typed = line:sub(start + 1, col)
-      return trigger, typed, start - 1  -- start_col is 0-indexed
-    end
-    if not c:match("[%w_%-%.@/#]") then break end
-    start = start - 1
-  end
-
-  return nil, "", col
-end
-
---------------------------------------------------------------------
--- Manual Completion Popup (replaces broken omnifunc)
---------------------------------------------------------------------
-
-local _completion_ns = api.nvim_create_namespace("dwight_completion")
-
-local function show_completion_popup(buf, win)
-  local trigger, typed, start_col = get_current_token(buf)
-  if not trigger then return end
-
-  local items = get_completions(trigger, typed)
-  if #items == 0 then return end
-
-  -- Use vim.fn.complete() which handles the popup natively
-  -- The col argument is 1-indexed byte position of where the completed text starts
-  vim.fn.complete(start_col + 1, vim.tbl_map(function(item)
-    return {
-      word = item.word,
-      menu = item.menu or "",
-      icase = 1,
-    }
-  end, items))
 end
 
 --------------------------------------------------------------------
@@ -268,8 +255,11 @@ end
 function M.open_prompt(selection, _preset_mode)
   local cfg = require("dwight").config
 
+  -- Store the source buffer so omnifunc can use its LSP for #symbol search
+  M._source_bufnr = selection.bufnr
+
   local width = math.floor(vim.o.columns * 0.55)
-  local height = 5  -- Minimal: just the input area
+  local height = 5
   width = math.max(width, 50)
 
   local row = math.floor((vim.o.lines - height) / 2)
@@ -280,19 +270,14 @@ function M.open_prompt(selection, _preset_mode)
   vim.bo[buf].filetype = "dwight_prompt"
   vim.bo[buf].bufhidden = "wipe"
 
+  -- KEY FIX: Set completeopt so the popup doesn't auto-insert
+  vim.bo[buf].omnifunc = "v:lua.require'dwight.ui'.omnifunc"
+
   local file_info = string.format("%d lines · %s",
     selection.end_line - selection.start_line + 1,
     vim.fn.fnamemodify(selection.filepath or "", ":t"))
 
-  -- Minimal: just input lines, no header box
-  local prefill = {
-    "",
-    "",
-    "",
-    "─── " .. file_info .. " ───",
-    "",
-  }
-
+  local prefill = { "", "", "", "─── " .. file_info .. " ───", "" }
   api.nvim_buf_set_lines(buf, 0, -1, false, prefill)
 
   local win = api.nvim_open_win(buf, true, {
@@ -301,7 +286,7 @@ function M.open_prompt(selection, _preset_mode)
     row = row, col = col,
     style = "minimal",
     border = cfg.border,
-    title = " dwight ",
+    title = " dwight · Esc then ? help · q quit ",
     title_pos = "center",
   })
 
@@ -310,57 +295,68 @@ function M.open_prompt(selection, _preset_mode)
   vim.wo[win].wrap       = true
   vim.wo[win].linebreak  = true
 
+  -- CRITICAL: noinsert + noselect prevents auto-inserting first match
+  local saved_completeopt = vim.o.completeopt
+  vim.opt.completeopt = "menuone,noinsert,noselect"
+
+  -- Restore completeopt when the buffer is wiped
+  api.nvim_create_autocmd("BufWipeout", {
+    buffer = buf,
+    once = true,
+    callback = function()
+      vim.opt.completeopt = saved_completeopt
+    end,
+  })
+
   api.nvim_win_set_cursor(win, { 1, 0 })
   vim.cmd("startinsert")
 
   -- Live highlighting
   highlight_prompt_buf(buf)
   api.nvim_create_autocmd({ "TextChangedI", "TextChanged" }, {
-    buffer = buf,
-    callback = function() highlight_prompt_buf(buf) end,
+    buffer = buf, callback = function() highlight_prompt_buf(buf) end,
   })
 
-  -- Fuzzy completion: trigger on @, /, # and continue as user types
-  api.nvim_create_autocmd("TextChangedI", {
-    buffer = buf,
-    callback = function()
-      -- Only trigger if popup not already visible
-      if vim.fn.pumvisible() == 1 then return end
-      local trigger = get_current_token(buf)
-      if trigger then
-        vim.schedule(function()
-          if api.nvim_buf_is_valid(buf) then
-            show_completion_popup(buf, win)
-          end
-        end)
-      end
-    end,
-  })
-
-  -- Key: trigger completion on @, /, #
+  -- Trigger omnifunc when @, /, # are typed
   api.nvim_create_autocmd("InsertCharPre", {
     buffer = buf,
     callback = function()
       local char = vim.v.char
       if char == "@" or char == "/" or char == "#" then
         vim.schedule(function()
-          if api.nvim_buf_is_valid(buf) then
-            show_completion_popup(buf, win)
+          if api.nvim_buf_is_valid(buf) and vim.fn.pumvisible() == 0 then
+            vim.fn.feedkeys(api.nvim_replace_termcodes("<C-x><C-o>", true, false, true), "n")
           end
         end)
       end
     end,
   })
 
-  local opts = { buffer = buf, noremap = true, silent = true }
+  -- Re-trigger omnifunc as user types after @/# / to update fuzzy results
+  api.nvim_create_autocmd("TextChangedI", {
+    buffer = buf,
+    callback = function()
+      if vim.fn.pumvisible() == 1 then return end
+      local trigger = find_token_at_cursor()
+      if trigger then
+        vim.schedule(function()
+          if api.nvim_buf_is_valid(buf) then
+            vim.fn.feedkeys(api.nvim_replace_termcodes("<C-x><C-o>", true, false, true), "n")
+          end
+        end)
+      end
+    end,
+  })
 
-  -- Tab: cycle completions or trigger
+  local bopts = { buffer = buf, noremap = true, silent = true }
+
+  -- Tab / S-Tab: navigate completion popup
   vim.keymap.set("i", "<Tab>", function()
     if vim.fn.pumvisible() == 1 then
       return api.nvim_replace_termcodes("<C-n>", true, false, true)
+    else
+      return api.nvim_replace_termcodes("<C-x><C-o>", true, false, true)
     end
-    show_completion_popup(buf, win)
-    return ""
   end, { buffer = buf, expr = true })
 
   vim.keymap.set("i", "<S-Tab>", function()
@@ -370,7 +366,7 @@ function M.open_prompt(selection, _preset_mode)
     return ""
   end, { buffer = buf, expr = true })
 
-  -- Enter: accept completion or submit
+  -- Enter: accept completion item OR submit prompt
   vim.keymap.set("i", "<CR>", function()
     if vim.fn.pumvisible() == 1 then
       return api.nvim_replace_termcodes("<C-y>", true, false, true)
@@ -413,45 +409,50 @@ function M.open_prompt(selection, _preset_mode)
     return ""
   end, { buffer = buf, expr = true })
 
-  -- ? toggle help overlay
+  -- ? toggle help (works in BOTH normal and insert mode)
   local help_visible = false
-  local help_ns = api.nvim_create_namespace("dwight_help")
+  local help_ns = api.nvim_create_namespace("dwight_help_" .. buf)
 
   local function toggle_help()
     if help_visible then
       api.nvim_buf_clear_namespace(buf, help_ns, 0, -1)
       help_visible = false
     else
-      local help_lines = {
-        { { "  @skill ", "DwightSkill" }, { "load a skill  ", "Comment" } },
-        { { "  /mode  ", "DwightMode" }, { "set operation  ", "Comment" } },
-        { { "  #symbol", "DwightSymbol" }, { "include code   ", "Comment" } },
-        { { "  <CR>   ", "Special" }, { "submit  ", "Comment" },
-          { "  <Esc>/q ", "Special" }, { "cancel", "Comment" } },
-      }
-      -- Show as virtual lines at end of buffer
+      -- Use a SINGLE extmark with multiple virt_lines on the last buffer line
       local last_line = api.nvim_buf_line_count(buf) - 1
-      for i, chunks in ipairs(help_lines) do
-        pcall(api.nvim_buf_set_extmark, buf, help_ns, last_line, 0, {
-          virt_lines = { chunks },
-          virt_lines_above = false,
-        })
-        last_line = last_line  -- all append after last
-      end
+      api.nvim_buf_set_extmark(buf, help_ns, last_line, 0, {
+        virt_lines = {
+          { { "  @skill ", "DwightSkill" }, { " load coding guidelines", "Comment" } },
+          { { "  /mode  ", "DwightMode" }, { " set operation (refactor, fix, code…)", "Comment" } },
+          { { "  #symbol", "DwightSymbol" }, { " include function/type from other files", "Comment" } },
+          { { "  <CR>   ", "Special" }, { " submit   ", "Comment" },
+            { "<Esc> ", "Special" }, { "cancel   ", "Comment" },
+            { "<Tab> ", "Special" }, { "complete", "Comment" } },
+        },
+        virt_lines_above = false,
+      })
       help_visible = true
     end
   end
 
-  vim.keymap.set("n", "?", toggle_help, opts)
-  vim.keymap.set("i", "<C-?>", toggle_help, { buffer = buf })
+  vim.keymap.set("n", "?", toggle_help, bopts)
+  vim.keymap.set("i", "<C-h>", toggle_help, { buffer = buf, noremap = true })
 
-  -- Escape / q to close
-  vim.keymap.set("n", "<Esc>", function()
-    if api.nvim_win_is_valid(win) then api.nvim_win_close(win, true) end
-  end, opts)
+  -- q to close (normal mode). Esc exits insert → normal, where ? works.
   vim.keymap.set("n", "q", function()
     if api.nvim_win_is_valid(win) then api.nvim_win_close(win, true) end
-  end, opts)
+  end, bopts)
+
+  -- Esc in insert mode: close popup if visible, otherwise go to normal mode
+  vim.keymap.set("i", "<Esc>", function()
+    if vim.fn.pumvisible() == 1 then
+      -- Close completion popup, stay in insert
+      return api.nvim_replace_termcodes("<C-e>", true, false, true)
+    end
+    -- Go to normal mode so user can press ? for help or q to quit
+    vim.cmd("stopinsert")
+    return ""
+  end, { buffer = buf, expr = true })
 end
 
 return M

@@ -11,10 +11,11 @@ local M = {}
 --- Search workspace symbols matching a query string.
 ---@param query string
 ---@param max_results number|nil
+---@param bufnr number|nil Buffer with LSP clients (defaults to current)
 ---@return table[] List of { name, kind, filepath, line, text }
-function M.search(query, max_results)
+function M.search(query, max_results, bufnr)
   max_results = max_results or 20
-  local bufnr = vim.api.nvim_get_current_buf()
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
 
   local clients
   if vim.lsp.get_clients then

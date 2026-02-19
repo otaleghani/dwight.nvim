@@ -1,6 +1,6 @@
 -- dwight/log.lua
--- Job logging system. Every invocation is recorded and prompts are saved to tmp files.
--- Covers: code jobs, skill generation, doc generation, project init, runner commands.
+-- Job logging. Every prompt is saved to a tmp file for review.
+-- :DwightLog shows Telescope picker with key hints.
 
 local M = {}
 
@@ -8,7 +8,6 @@ M._entries = {}
 M._max = 200
 M._job_counter = 0
 
---- Get next job ID (shared across all modules).
 function M._next_id()
   M._job_counter = M._job_counter + 1
   return M._job_counter
@@ -29,13 +28,11 @@ local status_icons = {
 --------------------------------------------------------------------
 
 function M.start(job_id, mode, bufnr, start_line, end_line, prompt)
-  -- Save prompt to tmp file for later review
   local prompt_file = vim.fn.tempname() .. "_dwight_prompt_" .. job_id .. ".md"
   local f = io.open(prompt_file, "w")
   if f then
     f:write(string.format("-- Dwight Job #%d | Mode: %s | %s\n-- Lines %d-%d | %s\n\n",
-      job_id, mode,
-      os.date("%Y-%m-%d %H:%M:%S"),
+      job_id, mode, os.date("%Y-%m-%d %H:%M:%S"),
       start_line, end_line,
       bufnr > 0 and vim.api.nvim_buf_get_name(bufnr) or "(n/a)"))
     f:write(prompt)
@@ -83,7 +80,6 @@ function M.finish(job_id, status, raw_response, parsed_code, error_msg)
   entry.finished = os.time()
   entry.chars_received = #(raw_response or "")
 
-  -- Append response to the prompt file
   if entry.prompt_file then
     local f = io.open(entry.prompt_file, "a")
     if f then
@@ -113,7 +109,6 @@ function M.show()
     vim.notify("[dwight] No jobs logged yet.", vim.log.levels.INFO)
     return
   end
-
   local has_telescope, _ = pcall(require, "telescope")
   if has_telescope then M._show_telescope() else M._show_native() end
 end
@@ -121,7 +116,7 @@ end
 function M._show_native()
   local items = {}
   for _, entry in ipairs(M._entries) do items[#items + 1] = format_entry(entry) end
-  vim.ui.select(items, { prompt = "Job Log:" }, function(_, idx)
+  vim.ui.select(items, { prompt = "Job Log (Enter: jump, o: open prompt file):" }, function(_, idx)
     if idx then M._inspect(M._entries[idx]) end
   end)
 end
@@ -135,7 +130,8 @@ function M._show_telescope()
   local previewers  = require("telescope.previewers")
 
   pickers.new({}, {
-    prompt_title = "🗂 Dwight Job Log",
+    -- KEY HINTS: shown directly in the Telescope prompt title
+    prompt_title = "🗂 Dwight Log  ⏎ jump  ^O open file  ^K kill  ^Y copy response",
     finder = finders.new_table({
       results = M._entries,
       entry_maker = function(entry)
@@ -147,7 +143,7 @@ function M._show_telescope()
     }),
     sorter = conf.generic_sorter({}),
     previewer = previewers.new_buffer_previewer({
-      title = "Job Details",
+      title = "Job Details  (^O open prompt file)",
       define_preview = function(self, telescope_entry)
         local lines = M._format_detail(telescope_entry.value)
         vim.api.nvim_buf_set_lines(self.state.bufnr, 0, -1, false, lines)
@@ -155,11 +151,30 @@ function M._show_telescope()
       end,
     }),
     attach_mappings = function(prompt_bufnr, map_fn)
+      -- Enter: jump to the code location
       actions.select_default:replace(function()
         local entry = action_state.get_selected_entry()
         actions.close(prompt_bufnr)
         if entry then M._jump_to(entry.value) end
       end)
+
+      -- Ctrl-O: open the full prompt+response tmp file
+      map_fn("i", "<C-o>", function()
+        local entry = action_state.get_selected_entry()
+        if entry and entry.value.prompt_file then
+          actions.close(prompt_bufnr)
+          vim.cmd("edit " .. vim.fn.fnameescape(entry.value.prompt_file))
+        end
+      end)
+      map_fn("n", "<C-o>", function()
+        local entry = action_state.get_selected_entry()
+        if entry and entry.value.prompt_file then
+          actions.close(prompt_bufnr)
+          vim.cmd("edit " .. vim.fn.fnameescape(entry.value.prompt_file))
+        end
+      end)
+
+      -- Ctrl-K: kill a running job
       map_fn("i", "<C-k>", function()
         local entry = action_state.get_selected_entry()
         if entry and entry.value.status == "running" then
@@ -171,13 +186,16 @@ function M._show_telescope()
           end
         end
       end)
-      map_fn("i", "<C-o>", function()
+
+      -- Ctrl-Y: yank the raw response to clipboard
+      map_fn("i", "<C-y>", function()
         local entry = action_state.get_selected_entry()
-        if entry and entry.value.prompt_file then
-          actions.close(prompt_bufnr)
-          vim.cmd("edit " .. vim.fn.fnameescape(entry.value.prompt_file))
+        if entry and entry.value.raw_response ~= "" then
+          vim.fn.setreg("+", entry.value.raw_response)
+          vim.notify("[dwight] Response copied to clipboard.", vim.log.levels.INFO)
         end
       end)
+
       return true
     end,
   }):find()
@@ -193,6 +211,10 @@ function M._format_detail(e)
     "**Lines:** " .. e.start_line .. "-" .. e.end_line,
     "**Duration:** " .. (e.finished and (e.finished - e.started) .. "s" or "running…"),
     "**Prompt file:** " .. (e.prompt_file or "n/a"),
+    "",
+    "---",
+    "Keys: **^O** open prompt file | **^K** kill job | **^Y** copy response",
+    "---",
     "",
   }
 
@@ -239,7 +261,8 @@ function M._inspect(entry)
     row = math.floor((vim.o.lines - height) / 2),
     col = math.floor((vim.o.columns - width) / 2),
     style = "minimal", border = require("dwight").config.border,
-    title = " Job #" .. entry.id .. " ", title_pos = "center",
+    title = " Job #" .. entry.id .. " · o: open file · g: go to code · q: close ",
+    title_pos = "center",
   })
 
   local opts = { buffer = buf }

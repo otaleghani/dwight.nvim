@@ -1,6 +1,7 @@
 -- dwight/opencode.lua
 -- Integration with the opencode CLI.
--- Supports PARALLEL jobs with per-job indicators, logging, and dedup.
+-- PARALLEL jobs with per-job indicators, logging, dedup.
+-- STRICT parser: only accepts fenced code blocks, rejects monologue/thinking.
 
 local M = {}
 
@@ -15,90 +16,102 @@ local function get_dwight()
 end
 
 --------------------------------------------------------------------
--- Output Parsing
+-- Output Parsing (STRICT — code blocks only, no fallback to raw)
 --------------------------------------------------------------------
 
+--- Extract the best code block from fenced markdown.
+--- Returns nil if no fenced block found (this is intentional — we NEVER
+--- fall back to raw text, which is where monologue leaks come from).
 local function extract_code_block(raw)
+  -- Try standard fences: ```lang\n...\n```
   local blocks = {}
   for block in raw:gmatch("```[%w_]*%s*\n(.-)\n%s*```") do
     blocks[#blocks + 1] = block
   end
+  -- Looser fence matching (no trailing newline before ```)
   if #blocks == 0 then
     for block in raw:gmatch("```[%w_]*%s*\n(.-)```") do
       blocks[#blocks + 1] = block
     end
   end
-  if #blocks > 0 then
-    local best = blocks[1]
-    for i = 2, #blocks do
-      if #blocks[i] > #best then best = blocks[i] end
-    end
-    return best
+  if #blocks == 0 then return nil end
+
+  -- Pick the largest block (the actual code, not small inline examples)
+  local best = blocks[1]
+  for i = 2, #blocks do
+    if #blocks[i] > #best then best = blocks[i] end
   end
-  return nil
+  return best
 end
 
-local function looks_like_code(text, _language)
+--- Detect if text looks like LLM monologue/thinking rather than code.
+local function looks_like_monologue(text)
   local lines = vim.split(text, "\n", { plain = true })
-  if #lines == 0 then return false end
-  local code_ind, prose_ind = 0, 0
+  if #lines == 0 then return true end
+
+  local monologue_signals = 0
+  local total_lines = 0
+
   for _, line in ipairs(lines) do
     local t = vim.trim(line)
-    if t == "" then
-      -- skip
-    elseif t:match("^%-%-") or t:match("^#") or t:match("^//") or t:match("^/%*") or t:match("^;") then
-      code_ind = code_ind + 1
-    elseif t:match("^[%w_%.%:%(%)%{%}%[%]%=%;%,<>%+%-%*%&%|%!%~%@%%]") then
-      code_ind = code_ind + 1
-    elseif t:match("^This ") or t:match("^The ") or t:match("^I ") or
-           t:match("^Here ") or t:match("^Note") or t:match("^In ") then
-      prose_ind = prose_ind + 1
-    else
-      code_ind = code_ind + 0.5
+    if t ~= "" then
+      total_lines = total_lines + 1
+      -- Common monologue patterns
+      if t:match("^I['']ll ") or t:match("^I['']m ") or t:match("^I will ")
+        or t:match("^Let me ") or t:match("^Now let")
+        or t:match("^Here is") or t:match("^Here's")
+        or t:match("^This code") or t:match("^The code")
+        or t:match("^I need to") or t:match("^First,")
+        or t:match("^Note:") or t:match("^Note that")
+        or t:match("^Looking at") or t:match("^Based on")
+        or t:match("^To implement") or t:match("^To fix")
+        or t:match("^The changes") or t:match("^Key changes")
+        or t:match("^Summary") or t:match("^Explanation")
+        or t:match("^I've ") or t:match("^I have ")
+        or t:match("^In this") or t:match("^This is")
+        or t:match("^Now,") or t:match("^So,")
+        or t:match("^The main") or t:match("^The issue")
+        or t:match("^%d+%.%s+[A-Z]")  -- numbered prose like "1. First we..."
+      then
+        monologue_signals = monologue_signals + 1
+      end
     end
   end
-  local total = code_ind + prose_ind
-  if total == 0 then return false end
-  return (prose_ind / total) < 0.3
+
+  if total_lines == 0 then return true end
+  -- If more than 40% of lines look like prose, it's monologue
+  return (monologue_signals / total_lines) > 0.4
 end
 
-local function parse_output(raw, original_text, language)
+--- Parse the LLM output. STRICT: only fenced code blocks accepted.
+local function parse_output(raw, original_text, _language)
   if not raw or raw == "" then return nil end
 
   local code = extract_code_block(raw)
-  if not code then
-    local stripped = raw
-    stripped = stripped:gsub("^.-\n([\t ]*[%w_])", "%1")
-    stripped = stripped:gsub("\n\n[A-Z][^\n]*$", "")
-    if looks_like_code(stripped, language) then code = stripped end
-  end
-  if not code and looks_like_code(raw, language) then code = raw end
+
+  -- No fenced block found → this is monologue or garbage. Reject.
   if not code then return nil end
 
+  -- Check if what we extracted is actually monologue stuffed in a code block
+  if looks_like_monologue(code) then return nil end
+
+  -- Clean up
   code = code:gsub("^\n+", ""):gsub("\n+$", "")
 
+  -- Sanity check: if the output is dramatically smaller than input, something went wrong
   local orig_lines = #vim.split(original_text, "\n", { plain = true })
   local new_lines = #vim.split(code, "\n", { plain = true })
-  if orig_lines > 5 and new_lines < orig_lines * 0.2 then return nil end
+  if orig_lines > 5 and new_lines < orig_lines * 0.15 then return nil end
 
   return code
 end
 
 --------------------------------------------------------------------
--- Job ID generation & dedup
+-- Job ID (shared counter via log module)
 --------------------------------------------------------------------
 
 local function new_job_id()
   return require("dwight.log")._next_id()
-end
-
---- Content hash for dedup: prevents firing the same selection twice.
----@param bufnr number
----@param start_line number
----@param end_line number
----@return string
-local function selection_key(bufnr, start_line, end_line)
-  return string.format("%d:%d:%d", bufnr, start_line, end_line)
 end
 
 --------------------------------------------------------------------
@@ -129,7 +142,6 @@ local function adjust_other_jobs(exclude_job_id, bufnr, start_line, old_end_line
       if job.start_line > old_end_line then
         job.start_line = job.start_line + delta
         job.end_line = job.end_line + delta
-        -- Update indicator positions
         ui.update_indicator_range(id, job.start_line, job.end_line)
       end
     end
@@ -137,23 +149,7 @@ local function adjust_other_jobs(exclude_job_id, bufnr, start_line, old_end_line
 end
 
 --------------------------------------------------------------------
--- Write prompt to temp file
---------------------------------------------------------------------
-
-local function write_prompt_file(prompt_text)
-  local tmpfile = vim.fn.tempname() .. "_dwight_prompt.md"
-  local f = io.open(tmpfile, "w")
-  if not f then
-    vim.notify("[dwight] Failed to create temp prompt file", vim.log.levels.ERROR)
-    return nil
-  end
-  f:write(prompt_text)
-  f:close()
-  return tmpfile
-end
-
---------------------------------------------------------------------
--- Run opencode (parallel-safe, logged, per-job indicators)
+-- Run opencode
 --------------------------------------------------------------------
 
 function M.run(prompt_text, selection, cfg, mode_name)
@@ -165,23 +161,24 @@ function M.run(prompt_text, selection, cfg, mode_name)
   local start_line = selection.start_line
   local end_line = selection.end_line
 
-  -- Dedup: prevent exact same selection from being processed twice
   if has_overlap(bufnr, start_line, end_line) then
     vim.notify("[dwight] This selection overlaps with a running job. Wait or cancel first.",
       vim.log.levels.WARN)
     return
   end
 
-  -- Write prompt
-  local prompt_file = write_prompt_file(prompt_text)
-  if not prompt_file then return end
+  -- Write prompt to temp file
+  local prompt_file = vim.fn.tempname() .. "_dwight_prompt.md"
+  local f = io.open(prompt_file, "w")
+  if not f then
+    vim.notify("[dwight] Failed to create temp prompt file", vim.log.levels.ERROR)
+    return
+  end
+  f:write(prompt_text)
+  f:close()
 
   local job_id = new_job_id()
-
-  -- Log the start
   log.start(job_id, mode_name or "custom", bufnr, start_line, end_line, prompt_text)
-
-  -- Show per-job indicators
   ui.show_indicators(job_id, bufnr, start_line, end_line)
 
   -- Build flags
@@ -217,7 +214,6 @@ function M.run(prompt_text, selection, cfg, mode_name)
 
   local stdout_chunks = {}
   local stderr_chunks = {}
-
   local stdout = uv.new_pipe(false)
   local stderr = uv.new_pipe(false)
 
@@ -239,7 +235,6 @@ function M.run(prompt_text, selection, cfg, mode_name)
       local cur_start = job and job.start_line or start_line
       local cur_end = job and job.end_line or end_line
 
-      -- Clear this job's indicators
       ui.clear_indicators(job_id)
       dwight._active_jobs[job_id] = nil
 
@@ -262,11 +257,12 @@ function M.run(prompt_text, selection, cfg, mode_name)
       local parsed_code = parse_output(raw_output, original_text, language)
 
       if not parsed_code then
-        log.finish(job_id, "parse_fail", raw_output, nil, "Could not extract code")
+        log.finish(job_id, "parse_fail", raw_output, nil,
+          "Could not extract valid code (monologue or no code block)")
         vim.notify(
-          "[dwight] Job #" .. job_id .. ": couldn't extract code. Check :DwightLog for details.",
+          "[dwight] Job #" .. job_id ..
+          ": no valid code block in response. Check :DwightLog for raw output.",
           vim.log.levels.WARN)
-        vim.fn.setreg("+", raw_output)
         return
       end
 
@@ -284,10 +280,8 @@ function M.run(prompt_text, selection, cfg, mode_name)
       M._replace_selection_atomic(bufnr, cur_start, cur_end, parsed_code)
       adjust_other_jobs(job_id, bufnr, cur_start, cur_end, #new_lines)
 
-      -- Log success
       log.finish(job_id, "success", raw_output, parsed_code, nil)
 
-      -- Track usage
       pcall(function()
         require("dwight.tracker").record(mode_name or "custom", #prompt_text, #raw_output)
       end)
@@ -298,9 +292,7 @@ function M.run(prompt_text, selection, cfg, mode_name)
       end
 
       local msg = string.format("[dwight] ✅ Job #%d done (lines %d-%d).", job_id, cur_start, cur_end)
-      if remaining > 0 then
-        msg = msg .. string.format(" %d job(s) still running.", remaining)
-      end
+      if remaining > 0 then msg = msg .. string.format(" %d job(s) still running.", remaining) end
       vim.notify(msg, vim.log.levels.INFO)
     end)
   end)
@@ -314,24 +306,17 @@ function M.run(prompt_text, selection, cfg, mode_name)
     return
   end
 
-  -- Track
   dwight._active_jobs[job_id] = {
-    handle     = handle,
-    bufnr      = bufnr,
-    start_line = start_line,
-    end_line   = end_line,
-    mode       = mode_name or "custom",
-    started    = os.time(),
+    handle = handle, bufnr = bufnr, start_line = start_line, end_line = end_line,
+    mode = mode_name or "custom", started = os.time(),
   }
 
   stdout:read_start(function(err, data)
-    if err then return end
-    if data then stdout_chunks[#stdout_chunks + 1] = data end
+    if not err and data then stdout_chunks[#stdout_chunks + 1] = data end
   end)
 
   stderr:read_start(function(err, data)
-    if err then return end
-    if data then stderr_chunks[#stderr_chunks + 1] = data end
+    if not err and data then stderr_chunks[#stderr_chunks + 1] = data end
   end)
 
   -- Timeout
@@ -347,7 +332,7 @@ function M.run(prompt_text, selection, cfg, mode_name)
     end
   end)
 
-  -- Notify
+  -- Notify parallel
   local active_count = 0
   for _ in pairs(dwight._active_jobs) do active_count = active_count + 1 end
   if active_count > 1 then
@@ -378,6 +363,7 @@ function M._replace_selection_atomic(bufnr, start_line, end_line, new_text)
 
   vim.o.eventignore = eventignore
 
+  -- Brief highlight of replaced lines
   local ns = vim.api.nvim_create_namespace("dwight_replace_" .. start_line .. "_" .. os.time())
   local new_end = start_line - 1 + #new_lines
   for i = start_line - 1, math.min(new_end - 1, vim.api.nvim_buf_line_count(bufnr) - 1) do
@@ -389,81 +375,6 @@ function M._replace_selection_atomic(bufnr, start_line, end_line, new_text)
       vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
     end
   end, 3000)
-end
-
---------------------------------------------------------------------
--- Direct API fallback
---------------------------------------------------------------------
-
-function M.run_api(prompt_text, selection, api_config)
-  local ui = require("dwight.ui")
-  local bufnr = selection.bufnr
-  local job_id = new_job_id()
-
-  ui.show_indicators(job_id, bufnr, selection.start_line, selection.end_line)
-
-  local body
-  if api_config.provider == "anthropic" then
-    body = vim.fn.json_encode({
-      model = api_config.model or "claude-sonnet-4-20250514",
-      max_tokens = 8192,
-      messages = { { role = "user", content = prompt_text } },
-    })
-  else
-    body = vim.fn.json_encode({
-      model = api_config.model or "gpt-4o",
-      messages = { { role = "user", content = prompt_text } },
-      max_tokens = 8192,
-    })
-  end
-
-  local tmpbody = vim.fn.tempname() .. ".json"
-  local f = io.open(tmpbody, "w")
-  if f then f:write(body); f:close() end
-
-  local endpoint = api_config.endpoint
-  local auth_header
-  if api_config.provider == "anthropic" then
-    endpoint = endpoint or "https://api.anthropic.com/v1/messages"
-    auth_header = string.format("-H 'x-api-key: %s' -H 'anthropic-version: 2023-06-01'", api_config.api_key)
-  else
-    endpoint = endpoint or "https://api.openai.com/v1/chat/completions"
-    auth_header = string.format("-H 'Authorization: Bearer %s'", api_config.api_key)
-  end
-
-  local curl_cmd = string.format(
-    "curl -s -X POST %s %s -H 'Content-Type: application/json' -d @%s",
-    endpoint, auth_header, vim.fn.shellescape(tmpbody))
-
-  vim.fn.jobstart(curl_cmd, {
-    stdout_buffered = true,
-    on_stdout = function(_, data)
-      vim.schedule(function()
-        os.remove(tmpbody)
-        ui.clear_indicators(job_id)
-        local raw = table.concat(data, "\n")
-        local ok, resp = pcall(vim.fn.json_decode, raw)
-        if not ok then
-          vim.notify("[dwight] Failed to parse API response", vim.log.levels.ERROR)
-          return
-        end
-        local output
-        if api_config.provider == "anthropic" then
-          output = resp.content and resp.content[1] and resp.content[1].text or ""
-        else
-          output = resp.choices and resp.choices[1] and resp.choices[1].message
-            and resp.choices[1].message.content or ""
-        end
-        local parsed = parse_output(output, selection.text, selection.filetype or "text")
-        if parsed then
-          M._replace_selection_atomic(bufnr, selection.start_line, selection.end_line, parsed)
-          vim.notify("[dwight] Code updated.", vim.log.levels.INFO)
-        else
-          vim.notify("[dwight] Could not extract valid code.", vim.log.levels.WARN)
-        end
-      end)
-    end,
-  })
 end
 
 return M
