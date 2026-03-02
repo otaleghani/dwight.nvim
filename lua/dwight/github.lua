@@ -878,19 +878,13 @@ function M.pick(opts)
       finder = finders.new_table({
         results = issues,
         entry_maker = function(issue)
-          local text, highlights = format_issue_display(issue)
+          local text = format_issue_display(issue)
           return {
             value = issue,
-            display = function(entry)
-              -- Apply label color highlights if telescope supports it
-              if highlights and #highlights > 0 then
-                return text, highlights
-              end
-              return text
-            end,
-            ordinal = string.format("%d %s %s", issue.number, issue.title,
+            display = text,
+            ordinal = string.format("%d %s %s", issue.number or 0, issue.title or "",
               issue.assignees and #issue.assignees > 0
-                and (issue.assignees[1].login or "") or ""),
+                and (type(issue.assignees[1]) == "table" and issue.assignees[1].login or "") or ""),
           }
         end,
       }),

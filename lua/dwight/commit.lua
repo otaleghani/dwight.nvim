@@ -5,6 +5,9 @@
 
 local M = {}
 
+local _flatten = require("dwight.util").flatten_lines
+
+
 local uv = vim.loop or vim.uv
 
 local function git_sync(args, timeout_ms)
@@ -138,7 +141,7 @@ function M._open_commit_editor(message)
   lines[#lines + 1] = "# Edit the message above. :w to commit, :q to cancel."
   lines[#lines + 1] = "# Lines starting with # are ignored."
 
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, _flatten(lines))
   vim.bo[buf].modified = false
 
   -- Open in a split
@@ -180,6 +183,69 @@ function M._open_commit_editor(message)
       end
     end,
   })
+end
+
+--------------------------------------------------------------------
+-- Non-interactive commit message generation (for DwightAuto checkpoints)
+--------------------------------------------------------------------
+
+--- Generate a commit message non-interactively and call back with it.
+--- Used by DwightAuto to upgrade checkpoint commits in the background.
+--- @param task_title string Task description for context
+--- @param task_num number|nil Current task number
+--- @param total number|nil Total tasks
+--- @param callback function(msg: string|nil) Called with generated message or nil on failure
+function M.generate_auto(task_title, task_num, total, callback)
+  local diff = get_staged_diff()
+  if not diff then
+    -- Try last commit diff (checkpoint already committed)
+    diff = git_sync({ "diff", "HEAD~1..HEAD", "--stat", "-p", "--no-color" })
+  end
+  if not diff or vim.trim(diff) == "" then
+    callback(nil)
+    return
+  end
+
+  local files = git_sync({ "diff", "HEAD~1..HEAD", "--name-only" }) or ""
+
+  local task_ctx = ""
+  if task_num and total then
+    task_ctx = string.format("This is task %d of %d in an automated multi-step session.\nTask: %s",
+      task_num, total, task_title)
+  else
+    task_ctx = "Task: " .. (task_title or "automated change")
+  end
+
+  local prompt = string.format([[
+Generate a git commit message for the following changes made by an AI agent.
+
+%s
+
+Changed files:
+%s
+
+Diff:
+%s
+
+Rules:
+1. First line: concise summary (max 72 chars), imperative mood ("Add", "Fix", "Refactor")
+2. Use conventional commit format: feat:, fix:, refactor:, docs:, chore:, test:
+3. Blank line after summary
+4. Body: 1-3 lines explaining what was done and why (based on the task description)
+5. Keep body lines under 80 chars
+6. Do NOT mention "AI", "agent", "dwight", or "automated" in the message
+
+Respond with ONLY the commit message. No fences, no preamble.
+]], task_ctx, files, diff)
+
+  require("dwight.skills")._run_llm(prompt, function(raw, exit_code)
+    if exit_code ~= 0 or not raw or vim.trim(raw) == "" then
+      callback(nil)
+      return
+    end
+    local msg = raw:gsub("^```%w*\n", ""):gsub("\n```%s*$", "")
+    callback(vim.trim(msg))
+  end)
 end
 
 return M

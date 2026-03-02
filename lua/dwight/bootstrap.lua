@@ -552,6 +552,7 @@ Target: tag at least %d files (80%% of %d source files).
 
   local agent = require("dwight.agent")
   agent.run(prompt, {
+    plan = false,  -- skip planning, the prompt IS the plan
     on_complete = function(success)
       vim.schedule(function()
         if success then

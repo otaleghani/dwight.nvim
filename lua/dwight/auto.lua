@@ -140,7 +140,7 @@ function M._git_checkpoint(task_num, total, title, status)
     return false
   end
 
-  -- Build a descriptive commit message using integration module
+  -- Build a descriptive commit message using integration module (immediate, no LLM)
   local msg
   pcall(function()
     local integration = require("dwight.integration")
@@ -159,6 +159,35 @@ function M._git_checkpoint(task_num, total, title, status)
   -- Show just the first line in the status
   local first_line = msg:match("^([^\n]+)")
   status.append(string.format("  📌 Git checkpoint: %s", first_line))
+
+  -- Background: upgrade commit message with LLM-generated one (fire-and-forget)
+  -- Save the commit hash so we only amend THIS commit, not a later one
+  local checkpoint_hash
+  pcall(function()
+    local h, _ = git_sync({ "rev-parse", "HEAD" }, 2000)
+    if h then checkpoint_hash = vim.trim(h) end
+  end)
+
+  pcall(function()
+    require("dwight.commit").generate_auto(title, task_num, total, function(ai_msg)
+      if ai_msg and vim.trim(ai_msg) ~= "" then
+        vim.schedule(function()
+          pcall(function()
+            -- Safety: only amend if HEAD is still our checkpoint commit
+            local cur_head, _ = git_sync({ "rev-parse", "HEAD" }, 2000)
+            if cur_head and checkpoint_hash and vim.trim(cur_head) == checkpoint_hash then
+              local _, amend_code = git_sync({ "commit", "--amend", "-m", ai_msg, "--no-verify" }, 10000)
+              if amend_code == 0 then
+                local ai_first = ai_msg:match("^([^\n]+)")
+                status.append(string.format("  ✍️  Commit upgraded: %s", ai_first))
+              end
+            end
+          end)
+        end)
+      end
+    end)
+  end)
+
   return true
 end
 
