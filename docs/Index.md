@@ -131,11 +131,15 @@ Dwight extracts lessons from each session and applies them to future tasks autom
 | **Replay** | `:DwightReplay` | Step through past sessions |
 | **Bootstrap** | `:DwightBootstrap` | Auto-add feature pragmas |
 | **Split** | `:DwightSplitFeature` | Break large features into smaller ones |
+| **Audit & Heal** | `:DwightAudit` / `:DwightHeal` | Find and fix codebase quality issues |
 | **Docs** | `:DwightDocs` | Generate project documentation |
 | **TDD** | `:DwightTDD` | Test-driven development loop |
 | **CI/CD** | `:DwightCI` | Auto-fix CI pipeline failures |
 | **GitHub** | `:DwightPR` / `:DwightIssue` | PR and issue management |
-| **Stats** | `:DwightStats` | Telemetry dashboard |
+| **Workspace** | `:DwightWorkspace` | Multi-repo unified workspace |
+| **Stats** | `:DwightStats` | Telemetry dashboard and cost tracking |
+| **Whiteboard** | `:DwightWhiteboard` | AI brainstorming scratchpad |
+| **Templates** | `:DwightTemplate` | Reusable prompt templates |
 | **Health** | `:checkhealth dwight` | Validate your setup |
 
 See the full [[Commands|command reference]] for all 80+ commands.
@@ -150,6 +154,23 @@ Work across multiple repositories as a single workspace. Features can span repos
 :DwightWorkspaceAdd ../shared-lib
 :DwightWorkspaceFeatures
 ```
+See [[Multi-Repo Workspace]] for setup and usage.
+
+### Codebase Audit & Heal
+Find quality issues with static analysis and AI review, then fix them automatically:
+```vim
+:DwightAudit auth --deep     " Static + AI review
+:DwightHeal auth             " Char tests → plan → execute
+```
+See [[Codebase Audit & Heal]] for the full rehabilitation workflow.
+
+### Telemetry & Cost Tracking
+Track every invocation, token, and dollar locally:
+```vim
+:DwightStats                 " Full dashboard with daily trends
+:DwightStats export          " Export to JSON/CSV
+```
+See [[Telemetry & Stats]] for dashboard details.
 
 ### MCP Server Integration
 Connect external tools via the Model Context Protocol:
