@@ -4,6 +4,8 @@
 
 local M = {}
 
+local _flatten = require("dwight.util").flatten_lines
+
 M._entries = {}
 M._max = 200
 M._job_counter = 0
@@ -28,7 +30,18 @@ local status_icons = {
 --------------------------------------------------------------------
 
 function M.start(job_id, mode, bufnr, start_line, end_line, prompt)
-  local prompt_file = vim.fn.tempname() .. "_dwight_prompt_" .. job_id .. ".md"
+  -- Save prompts to .dwight/prompts/ for persistence and review
+  local prompt_dir
+  local project_ok, project = pcall(require, "dwight.project")
+  if project_ok and project.is_initialized() then
+    prompt_dir = project.dir() .. "/prompts"
+  else
+    prompt_dir = vim.fn.stdpath("data") .. "/dwight/prompts"
+  end
+  vim.fn.mkdir(prompt_dir, "p")
+
+  local timestamp = os.date("%Y%m%d-%H%M%S")
+  local prompt_file = string.format("%s/%s_%s_%d.md", prompt_dir, timestamp, mode:gsub("[^%w_%-]", "-"), job_id)
   local f = io.open(prompt_file, "w")
   if f then
     f:write(string.format("-- Dwight Job #%d | Mode: %s | %s\n-- Lines %d-%d | %s\n\n",
@@ -92,6 +105,31 @@ function M.finish(job_id, status, raw_response, parsed_code, error_msg)
   end
 end
 
+function M.append_note(job_id, note)
+  local entry = M.find(job_id)
+  if not entry then return end
+  if entry.prompt_file then
+    local f = io.open(entry.prompt_file, "a")
+    if f then
+      f:write("\n\n-- ─── NOTE ───\n")
+      f:write(note or "")
+      f:close()
+    end
+  end
+end
+
+--- Set metadata on a log entry (model, backend, tokens, cost, etc.)
+function M.set_metadata(job_id, meta)
+  local entry = M.find(job_id)
+  if not entry then return end
+  if meta.model then entry.model = meta.model end
+  if meta.backend then entry.backend = meta.backend end
+  if meta.provider_name then entry.provider_name = meta.provider_name end
+  if meta.tokens_in then entry.tokens_in = meta.tokens_in end
+  if meta.tokens_out then entry.tokens_out = meta.tokens_out end
+  if meta.cost then entry.cost = meta.cost end
+end
+
 --------------------------------------------------------------------
 -- Display
 --------------------------------------------------------------------
@@ -100,8 +138,13 @@ local function format_entry(entry)
   local icon = status_icons[entry.status] or "?"
   local file = entry.filepath ~= "" and vim.fn.fnamemodify(entry.filepath, ":t") or "—"
   local elapsed = entry.finished and (entry.finished - entry.started) or (os.time() - entry.started)
-  return string.format("%s #%d %s %s:%d-%d (%ds) [%s]",
-    icon, entry.id, entry.mode, file, entry.start_line, entry.end_line, elapsed, entry.status)
+  local meta = ""
+  if entry.model then meta = " [" .. entry.model .. "]" end
+  if entry.tokens_in and entry.tokens_out then
+    meta = meta .. string.format(" (%d→%d tok)", entry.tokens_in, entry.tokens_out)
+  end
+  return string.format("%s #%d %s %s:%d-%d (%ds)%s [%s]",
+    icon, entry.id, entry.mode, file, entry.start_line, entry.end_line, elapsed, meta, entry.status)
 end
 
 function M.show()
@@ -116,7 +159,7 @@ end
 function M._show_native()
   local items = {}
   for _, entry in ipairs(M._entries) do items[#items + 1] = format_entry(entry) end
-  vim.ui.select(items, { prompt = "Job Log (Enter: jump, o: open prompt file):" }, function(_, idx)
+  require("dwight.select").pick(items, { prompt = "Job Log:" }, function(_, idx)
     if idx then M._inspect(M._entries[idx]) end
   end)
 end
@@ -145,8 +188,18 @@ function M._show_telescope()
     previewer = previewers.new_buffer_previewer({
       title = "Job Details  (^O open prompt file)",
       define_preview = function(self, telescope_entry)
-        local lines = M._format_detail(telescope_entry.value)
-        vim.api.nvim_buf_set_lines(self.state.bufnr, 0, -1, false, lines)
+        local raw_lines = M._format_detail(telescope_entry.value)
+        -- Flatten: some fields (error_msg, etc.) may contain embedded newlines
+        -- which nvim_buf_set_lines rejects
+        local lines = {}
+        for _, line in ipairs(raw_lines) do
+          if line:find("\n") then
+            for sub in (line .. "\n"):gmatch("(.-)\n") do lines[#lines + 1] = sub end
+          else
+            lines[#lines + 1] = line
+          end
+        end
+        vim.api.nvim_buf_set_lines(self.state.bufnr, 0, -1, false, _flatten(lines))
         vim.bo[self.state.bufnr].filetype = "markdown"
       end,
     }),
@@ -211,12 +264,27 @@ function M._format_detail(e)
     "**Lines:** " .. e.start_line .. "-" .. e.end_line,
     "**Duration:** " .. (e.finished and (e.finished - e.started) .. "s" or "running…"),
     "**Prompt file:** " .. (e.prompt_file or "n/a"),
-    "",
-    "---",
-    "Keys: **^O** open prompt file | **^K** kill job | **^Y** copy response",
-    "---",
-    "",
   }
+
+  -- Metadata: model, backend, tokens (if set)
+  if e.model or e.backend or e.tokens_in then
+    lines[#lines + 1] = ""
+    if e.backend then lines[#lines + 1] = "**Backend:** " .. e.backend end
+    if e.model then lines[#lines + 1] = "**Model:** " .. e.model end
+    if e.provider_name then lines[#lines + 1] = "**Provider:** " .. e.provider_name end
+    if e.tokens_in and e.tokens_out then
+      lines[#lines + 1] = string.format("**Tokens:** %d in / %d out", e.tokens_in, e.tokens_out)
+    end
+    if e.cost and e.cost > 0 then
+      lines[#lines + 1] = string.format("**Cost:** $%.4f", e.cost)
+    end
+  end
+
+  lines[#lines + 1] = ""
+  lines[#lines + 1] = "---"
+  lines[#lines + 1] = "Keys: **^O** open prompt file | **^K** kill job | **^Y** copy response"
+  lines[#lines + 1] = "---"
+  lines[#lines + 1] = ""
 
   if e.error_msg then
     lines[#lines + 1] = "## Error"
@@ -247,9 +315,17 @@ function M._format_detail(e)
 end
 
 function M._inspect(entry)
-  local lines = M._format_detail(entry)
+  local raw_lines = M._format_detail(entry)
+  local lines = {}
+  for _, line in ipairs(raw_lines) do
+    if line:find("\n") then
+      for sub in (line .. "\n"):gmatch("(.-)\n") do lines[#lines + 1] = sub end
+    else
+      lines[#lines + 1] = line
+    end
+  end
   local buf = vim.api.nvim_create_buf(false, true)
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, _flatten(lines))
   vim.bo[buf].modifiable = false
   vim.bo[buf].bufhidden = "wipe"
   vim.bo[buf].filetype = "markdown"

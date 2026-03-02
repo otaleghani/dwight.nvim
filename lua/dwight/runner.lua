@@ -22,11 +22,16 @@ M._max_history = 20
 --- Run a shell command, capture output, store for AI context.
 ---@param cmd string Shell command to run
 ---@param opts table|nil { cwd = string }
-function M.run(cmd, opts)
+---@param callback function|nil Called with result when done
+function M.run(cmd, opts, callback)
   opts = opts or {}
   local cwd = opts.cwd or vim.fn.getcwd()
 
   vim.notify("[dwight] Running: " .. cmd, vim.log.levels.INFO)
+
+  -- Allocate job ID upfront so we can include it in the result
+  local job_id
+  pcall(function() job_id = require("dwight.log")._next_id() end)
 
   local stdout_chunks = {}
   local stderr_chunks = {}
@@ -52,6 +57,7 @@ function M.run(cmd, opts)
         stderr    = table.concat(stderr_chunks, ""),
         timestamp = started,
         duration  = os.time() - started,
+        job_id    = job_id,
       }
 
       -- Trim to last 5000 chars to avoid blowing up prompts
@@ -68,14 +74,15 @@ function M.run(cmd, opts)
         table.remove(M._history)
       end
 
-      -- Log it
+      -- Log it (reuse the job_id allocated at the start)
       pcall(function()
         local log = require("dwight.log")
-        local job_id = log._next_id()
-        log.start(job_id, "run:" .. cmd:sub(1, 30), vim.api.nvim_get_current_buf(), 0, 0, cmd)
-        local status = code == 0 and "success" or "error"
-        log.finish(job_id, status, result.stdout .. "\n" .. result.stderr, nil,
-          code ~= 0 and ("Exit code " .. code) or nil)
+        if job_id then
+          log.start(job_id, "run:" .. cmd:sub(1, 30), vim.api.nvim_get_current_buf(), 0, 0, cmd)
+          local status = code == 0 and "success" or "error"
+          log.finish(job_id, status, result.stdout .. "\n" .. result.stderr, nil,
+            code ~= 0 and ("Exit code " .. code) or nil)
+        end
       end)
 
       -- Notify
@@ -91,6 +98,9 @@ function M.run(cmd, opts)
           icon, cmd, code, result.duration, output_preview),
         code == 0 and vim.log.levels.INFO or vim.log.levels.WARN
       )
+
+      -- TDD / external callback
+      if callback then callback(result) end
     end)
   end)
 
@@ -131,6 +141,13 @@ function M.run_interactive(cmd)
       M.run(input)
     end
   end)
+end
+
+--- Run with callback (for TDD and automated workflows).
+---@param cmd string
+---@param callback function Called with result table
+function M.run_with_callback(cmd, callback)
+  M.run(cmd, nil, callback)
 end
 
 --- Try to detect the project's test/build runner.

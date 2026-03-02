@@ -1,101 +1,438 @@
-*dwight.txt*  AI-assisted coding for Neovim
+*dwight.txt*    AI-powered development companion for Neovim
 
+Author:  Oliviero Taleghani
+License: MIT
+Homepage: https://github.com/otaleghani/dwight.nvim
+Docs: https://dwight.talesign.com
+
+==============================================================================
 CONTENTS                                                    *dwight-contents*
 
   1. Introduction .......................... |dwight-introduction|
   2. Setup ................................. |dwight-setup|
-  3. Prompt ................................ |dwight-prompt|
-  4. Modes ................................. |dwight-modes|
-  5. Skills ................................ |dwight-skills|
-  6. Symbols ............................... |dwight-symbols|
-  7. Runner ................................ |dwight-runner|
-  8. Commands .............................. |dwight-commands|
-  9. Keymaps ............................... |dwight-keymaps|
+  3. Core Concepts ......................... |dwight-concepts|
+  4. Commands .............................. |dwight-commands|
+  5. Configuration ......................... |dwight-config|
+  6. Languages ............................. |dwight-languages|
+  7. Health Check .......................... |dwight-health|
 
-1. INTRODUCTION                                         *dwight-introduction*
+==============================================================================
+1. INTRODUCTION                                          *dwight-introduction*
 
-dwight.nvim is a developer-centered AI coding assistant. You select code,
-type instructions with @skills /modes #symbols, and the LLM modifies your
-code with precise, LSP-enriched context.
+Dwight is a Neovim plugin that orchestrates AI agents to plan, build, test,
+and ship code. It uses pragma comments in source files to scope context,
+delegates multi-step tasks to CLI agents with verification gates and git
+checkpoints, and learns from every session.
 
-2. SETUP                                                       *dwight-setup*
+Key features:
+- Autonomous multi-step execution (|:DwightAuto|)
+- Feature-scoped context via pragma comments
+- Skill system for coding guidelines (|:DwightMarketplace|)
+- Session replay for debugging (|:DwightReplay|)
+- CI auto-fix and GitHub integration
+- TDD mode (|:DwightTDD|)
 
-  require("dwight").setup({ ... })
+Full documentation: https://dwight.talesign.com
 
-Run :DwightInit in your project root to create .dwight/ with an AI-generated
-project.md and built-in skills.
+==============================================================================
+2. SETUP                                                      *dwight-setup*
 
-3. PROMPT                                                     *dwight-prompt*
+Requirements:~
+- Neovim 0.10+
+- A CLI agent backend (Claude Code, Codex, or Gemini CLI)
+- Git (for checkpoints and diff review)
 
-Select code in visual mode, then :DwightInvoke to open the prompt.
-The prompt is a full scratch buffer with static help below the divider.
-Type freely. Use inline tokens:
+Optional:~
+- telescope.nvim (better pickers)
+- nvim-treesitter (signature extraction)
+- GitHub CLI (for |:DwightPR| and |:DwightIssue|)
+- API key (for |:DwightGenSkill| and single-shot commands)
 
-  @skill-name     Load a skill (coding guidelines)
-  /mode-name      Set operation mode
-  #symbol-name    Include source code from another file (via LSP)
+                                                         *dwight.setup()*
+Install with your package manager and call setup: >lua
 
-<CR> submit. <Esc> normal mode. q close. <Tab> trigger/cycle completion.
-Completion is fuzzy — keep typing after @, /, # to filter.
+  require("dwight").setup({
+    backend = "claude_code",   -- "claude_code" | "codex" | "gemini"
+  })
+<
+See |dwight-config| for all options.
 
-4. MODES                                                       *dwight-modes*
-
-  /document    Add documentation
-  /refactor    Improve structure
-  /optimize    Performance improvements
-  /fix_bugs    Find and fix bugs
-  /security    Security audit
-  /explain     Add explanatory comments
-  /brainstorm  Brainstorm ideas as comments
-  /code        Implement stubs
-  /fix         Fix based on last :DwightRun output
-
-Register custom modes:
-  require("dwight.modes").register("mymode", { task = "...", icon = "🔹" })
-
-5. SKILLS                                                     *dwight-skills*
-
-Skills are .md files in .dwight/skills/. Built-in skills are copied on init.
-Create with :DwightGenSkill (AI), :DwightDocs (from URL), or manually.
-
-6. SYMBOLS                                                   *dwight-symbols*
-
-Type #functionName in the prompt to include its source code from another
-file. Uses LSP workspace/symbol search. Helps the AI write DRY code by
-seeing existing functions/types it should reuse.
-
-7. RUNNER                                                     *dwight-runner*
-
-  :DwightRun npm test     Run and capture output
-  :DwightRunOutput        View last output
-  <leader>aF              Fix code based on last run errors
-
-8. COMMANDS                                                 *dwight-commands*
-
-  :DwightInit             Initialize project
-  :DwightInvoke           Open prompt
-  :DwightMode {mode}      Run mode directly
-  :DwightSkills           Browse skills
-  :DwightGenSkill         Generate skill (AI)
-  :DwightDocs             Skill from docs URL
-  :DwightInstallSkills    Install built-in skills
-  :DwightRun [cmd]        Run build/test
-  :DwightRunOutput        Show run output
-  :DwightLog              Job log
-  :DwightCancel [all]     Cancel job(s)
-  :DwightUsage            Usage stats
-  :DwightStatus           Full status
-
-9. KEYMAPS                                                   *dwight-keymaps*
-
-dwight.nvim does not set any keymaps by default. You set them yourself:
->lua
-  local dwight = require("dwight")
-  vim.keymap.set("v", "<leader>ai", dwight.invoke)
-  vim.keymap.set("v", "<leader>ar", function() dwight.invoke_mode("refactor") end)
-  vim.keymap.set("n", "<leader>ax", dwight.cancel)
+After installing, verify with: >vim
+  :checkhealth dwight
 <
 
-See the README for a full suggested keymap setup.
+==============================================================================
+3. CORE CONCEPTS                                          *dwight-concepts*
 
+Pragmas ~
+                                                            *dwight-pragmas*
+A pragma is a comment that tells Dwight what a file is about: >go
+
+  // User authentication and JWT handling. @feature:auth
+  package auth
+<
+Supported pragmas:
+  `@feature:name`   Assigns the file to a feature group
+  `@project`        Marks project-wide files (main, shared types)
+  `@constraint`     Marks files with project rules
+
+Use |:DwightBootstrap| to auto-add pragmas to all files.
+
+Features ~
+                                                          *dwight-features*
+A feature is a named group of files. When an agent works on "auth", it sees
+only files tagged `@feature:auth`. This keeps context tight and results
+accurate.
+
+View features with |:DwightFeatures|. Split large features with
+|:DwightSplitFeature|.
+
+Skills ~
+                                                            *dwight-skills*
+Skills are markdown files in `.dwight/skills/` that guide AI behavior. They
+contain guidelines, code patterns, and anti-patterns.
+
+Create with |:DwightGenSkill| or browse packs with |:DwightMarketplace|.
+
+Lessons ~
+                                                           *dwight-lessons*
+Dwight extracts lessons from agent sessions (patterns that worked, errors
+encountered). Lessons are stored in `.dwight/lessons.json` and included in
+future agent prompts automatically.
+
+View with |:DwightLessons|. Consolidate stale lessons with
+`:DwightLessons consolidate`.
+
+==============================================================================
+4. COMMANDS                                              *dwight-commands*
+
+Project Setup ~
+
+  :DwightInit                                              *:DwightInit*
+      Initialize `.dwight/` directory with skills and project scope.
+
+  :DwightBootstrap [--agentic]                        *:DwightBootstrap*
+      Auto-add `@feature:` pragmas to source files. Use `--agentic` for
+      AI-powered analysis (recommended).
+
+  :DwightHealth                                          *:DwightHealth*
+      Show diagnostic report in a buffer.
+
+Autonomous Execution ~
+
+  :DwightAuto {task}                                      *:DwightAuto*
+      Plan and execute a multi-step task. The planner breaks it into
+      sub-tasks, each executed with verification gates and git checkpoints.
+
+  :DwightAutoStatus                                  *:DwightAutoStatus*
+      Show current Auto session progress.
+
+  :DwightAutoCancel                                  *:DwightAutoCancel*
+      Cancel the running Auto session.
+
+  :DwightAutoRetry                                    *:DwightAutoRetry*
+      Retry the last failed sub-task.
+
+  :DwightAutoResume                                  *:DwightAutoResume*
+      Resume from the next pending sub-task.
+
+  :DwightAutoSkip                                      *:DwightAutoSkip*
+      Skip the current sub-task and continue.
+
+  :DwightAutoReview                                  *:DwightAutoReview*
+      Review the remaining plan.
+
+  :DwightPause                                            *:DwightPause*
+      Pause after the current sub-task finishes.
+
+  :DwightContinue                                      *:DwightContinue*
+      Resume a paused session.
+
+  :DwightAgent {task}                                    *:DwightAgent*
+      Run a single agentic task with tool use (no sub-task planning).
+
+Code Operations ~
+
+  :DwightRefactor                                      *:DwightRefactor*
+      AI-assisted refactoring of current selection or file.
+
+  :DwightExecute                                        *:DwightExecute*
+      Execute an inline AI instruction from a comment.
+
+  :DwightCommit                                          *:DwightCommit*
+      Generate a conventional commit message from staged changes.
+
+  :DwightRepeat                                          *:DwightRepeat*
+      Re-run the last Dwight operation.
+
+Features & Context ~
+
+  :DwightFeatures                                      *:DwightFeatures*
+      List all detected features with file counts.
+
+  :DwightFeaturePreview [feature]              *:DwightFeaturePreview*
+      Detailed view of a feature's files, signatures, and dependencies.
+
+  :DwightCoverage                                      *:DwightCoverage*
+      Show pragma coverage stats.
+
+  :DwightMinimap                                        *:DwightMinimap*
+      Treesitter signature map of the current buffer.
+
+  :DwightSplitFeature [feature] [--agentic]      *:DwightSplitFeature*
+      Split a large feature into sub-features. Use `--agentic` for
+      AI-powered boundary detection.
+
+  :DwightSplitPreview [feature]                  *:DwightSplitPreview*
+      Preview a split without applying it.
+
+  :DwightSplitAudit                                  *:DwightSplitAudit*
+      Check which features are too large.
+
+Skills & Marketplace ~
+
+  :DwightSkills                                          *:DwightSkills*
+      Browse project skills (Telescope picker).
+
+  :DwightGenSkill                                      *:DwightGenSkill*
+      AI-generate a new skill from a description.
+
+  :DwightInstallSkills                            *:DwightInstallSkills*
+      Install built-in skills.
+
+  :DwightMarketplace [action]                      *:DwightMarketplace*
+      Skill marketplace. Actions: `install`, `suggest`, `export`,
+      `import`, `detect`. No argument opens the browser.
+
+Documentation ~
+
+  :DwightDocs [target] [--agentic]                        *:DwightDocs*
+      Generate public documentation. `--agentic` reads source code.
+
+  :DwightDevDocs [target] [--agentic]                  *:DwightDevDocs*
+      Generate internal developer documentation.
+
+Testing & CI ~
+
+  :DwightTDD [description]                                *:DwightTDD*
+      Start a TDD loop: write test, run, fix, rerun.
+
+  :DwightTDDStop                                        *:DwightTDDStop*
+      Stop the active TDD session.
+
+  :DwightCI [url]                                          *:DwightCI*
+      Auto-fix CI failures from a pipeline URL or latest run.
+
+Git & GitHub ~
+
+  :DwightGit {subcmd}                                      *:DwightGit*
+      Git operations: `stash`, `unstash`, `status`, `log`.
+
+  :DwightSquash                                          *:DwightSquash*
+      Squash Dwight checkpoint commits into one.
+
+  :DwightDiffReview                                  *:DwightDiffReview*
+      Full diff of the last session's changes.
+
+  :DwightPR [title]                                        *:DwightPR*
+      Create a pull request. Requires GitHub CLI.
+
+  :DwightPRReview [number]                            *:DwightPRReview*
+      AI review of a pull request.
+
+  :DwightIssue [number]                                  *:DwightIssue*
+      Work on a GitHub issue.
+
+Session & Replay ~
+
+  :DwightReplay [session]                              *:DwightReplay*
+      Interactive session replay. Use `latest` for most recent, a
+      filename for direct match, or blank for Telescope picker.
+
+      Replay keybindings:~
+        `j`/`→`/`Space`   Next step
+        `k`/`←`           Previous step
+        `J`               Jump to next tool call
+        `K`               Jump to previous tool call
+        `gg`              First step
+        `G`               Last step
+        `v`               Toggle single/cumulative view
+        `q`/`Esc`         Close
+
+  :DwightSessionLog                                  *:DwightSessionLog*
+      View the persistent session log.
+
+  :DwightLog                                                *:DwightLog*
+      View the job log.
+
+Telemetry ~
+
+  :DwightUsage                                            *:DwightUsage*
+      Quick usage summary.
+
+  :DwightStats [target]                                  *:DwightStats*
+      Full telemetry dashboard. Targets: `features`, `export`.
+
+  :DwightLessons [action]                              *:DwightLessons*
+      View or manage lessons. Action: `consolidate`.
+
+Configuration ~
+
+  :DwightBackend [name]                              *:DwightBackend*
+      Switch backend at runtime.
+
+  :DwightSwitch [model]                                *:DwightSwitch*
+      Switch AI model.
+
+  :DwightStreamToggle                              *:DwightStreamToggle*
+      Toggle streaming output.
+
+  :DwightDiffToggle                                  *:DwightDiffToggle*
+      Toggle diff preview.
+
+  :DwightGitToggle                                    *:DwightGitToggle*
+      Toggle git context inclusion.
+
+Multi-Repo Workspace ~
+
+  :DwightWorkspace                                    *:DwightWorkspace*
+      Show workspace status.
+
+  :DwightWorkspaceAdd [path]                      *:DwightWorkspaceAdd*
+      Add a repository to the workspace.
+
+  :DwightWorkspaceRemove                        *:DwightWorkspaceRemove*
+      Remove a repository.
+
+  :DwightWorkspaceFeatures                    *:DwightWorkspaceFeatures*
+      List features across all workspace repos.
+
+Other ~
+
+  :DwightWhiteboard                                  *:DwightWhiteboard*
+      Open a scratchpad for brainstorming with AI.
+
+  :DwightAudit                                            *:DwightAudit*
+      Run a codebase quality audit.
+
+  :DwightHeal [target]                                    *:DwightHeal*
+      Auto-fix issues found by audit.
+
+  :DwightCancel                                          *:DwightCancel*
+      Cancel any running operation.
+
+==============================================================================
+5. CONFIGURATION                                           *dwight-config*
+
+Pass options to |dwight.setup()|. All options are optional. >lua
+
+  require("dwight").setup({
+    -- Backend: CLI agent for agentic tasks
+    backend = "claude_code",        -- "claude_code" | "codex" | "gemini"
+
+    -- Claude Code
+    claude_code_bin = "claude",     -- binary path
+    claude_code_model = nil,        -- nil | "sonnet" | "opus" | "haiku"
+
+    -- Codex
+    codex_bin = "codex",
+    codex_model = nil,
+
+    -- Gemini
+    gemini_bin = "gemini",
+    gemini_model = nil,
+
+    -- Provider (for single-shot API calls: skills, refactor)
+    provider = nil,                 -- nil (auto) | "anthropic" | "openai"
+    model = nil,                    -- nil (default) | "sonnet" | "openai:gpt-4o"
+    api_key = nil,                  -- or set ANTHROPIC_API_KEY env var
+    max_tokens = 4096,
+
+    -- Agent tuning
+    agentic_opts = {
+      max_output_tokens = 64000,    -- per-response token budget
+      cli_timeout = 600,            -- seconds (10 min default)
+    },
+    timeout = 120000,               -- ms, non-agentic operations
+
+    -- Context
+    lsp_context_lines = 80,
+    include_diagnostics = true,
+    include_type_info = true,
+    include_references = true,
+    max_references = 10,
+    git_context = true,
+    default_skills = {},
+
+    -- UI
+    indicator_style = "both",       -- "sign" | "virtual" | "both"
+    indicator_sign = "⟳",
+    border = "rounded",
+    diff_preview = false,
+    streaming = false,
+
+    -- MCP servers
+    mcp_servers = {},               -- { { name, command, args, env } }
+
+    -- Language overrides (see |dwight-languages|)
+    languages = {},
+  })
+<
+
+Highlight Groups ~
+                                                    *dwight-highlight-groups*
+  `DwightProcessing`    Active operation indicator (orange, bold, italic)
+  `DwightSkill`         Valid @skill references (cyan, bold, underline)
+  `DwightSkillInvalid`  Invalid @skill references (red, strikethrough)
+  `DwightMode`          Mode indicators (orange, bold)
+  `DwightSymbol`        Symbol highlights (purple, bold, underline)
+
+All groups use `default = true` so your colorscheme takes priority.
+
+==============================================================================
+6. LANGUAGES                                            *dwight-languages*
+
+Dwight auto-detects languages from manifest files (go.mod, package.json,
+Cargo.toml, etc.) and configures test/build/lint commands accordingly.
+
+Override or extend with the `languages` option: >lua
+
+  require("dwight").setup({
+    languages = {
+      java = {
+        detect = { "pom.xml", "build.gradle" },
+        test_cmd = "mvn test -q",
+        build_cmd = "mvn compile -q",
+        lint_cmd = "checkstyle",
+      },
+    },
+  })
+<
+Each language entry can have:
+  `detect`      List of filenames that indicate this language
+  `test_cmd`    Command to run tests
+  `build_cmd`   Command to build the project
+  `lint_cmd`    Command to run the linter
+  `syntax_cmd`  Command for syntax checking
+
+==============================================================================
+7. HEALTH CHECK                                            *dwight-health*
+
+Run the Neovim-native health check: >vim
+  :checkhealth dwight
+<
+This verifies:
+- Project initialization (`.dwight/` directory)
+- Git repository status
+- Backend binary availability and authentication
+- API key configuration
+- Test command detection
+- Lesson and session status
+- Optional dependencies (Telescope, treesitter)
+- Feature and skill counts
+
+The custom |:DwightHealth| command shows the same information in a
+markdown-formatted buffer.
+
+==============================================================================
  vim:tw=78:ts=8:ft=help:norl:

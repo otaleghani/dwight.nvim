@@ -42,7 +42,6 @@ end
 
 function M.is_initialized()
   return vim.fn.isdirectory(M.dir()) == 1
-    and vim.fn.filereadable(M.project_file()) == 1
 end
 
 --------------------------------------------------------------------
@@ -51,25 +50,30 @@ end
 
 function M.init()
   if M.is_initialized() then
-    vim.notify("[dwight] Already initialized. Opening project.md.", vim.log.levels.INFO)
-    vim.cmd("edit " .. vim.fn.fnameescape(M.project_file()))
+    vim.notify("[dwight] Already initialized. Run :DwightBootstrap to add pragma comments.", vim.log.levels.INFO)
     return
   end
 
-  vim.ui.input({ prompt = "Describe your project (tech stack, purpose, etc.): " }, function(desc)
-    if not desc or desc == "" then
-      -- Fall back to template if user cancels
-      M._init_with_template()
-      return
-    end
+  -- Create directory structure
+  vim.fn.mkdir(M.skills_dir(), "p")
+  vim.fn.mkdir(M.dir() .. "/brainstorm", "p")
+  M._create_gitignore()
 
-    -- Create directory structure first
-    vim.fn.mkdir(M.skills_dir(), "p")
-    M._create_gitignore()
+  -- Copy built-in skills if available
+  local copied = M._copy_builtin_skills()
+  local msg = "📎 [dwight] Initialized! .dwight/ directory created."
+  if #copied > 0 then
+    msg = msg .. "\nBuilt-in skills: " ..
+      table.concat(vim.tbl_map(function(n) return "@" .. n end, copied), ", ")
+  end
+  msg = msg .. "\n\nNext steps:"
+  msg = msg .. "\n  :DwightBootstrap  — auto-add pragma comments (@feature, @project, etc.)"
+  msg = msg .. "\n  Or manually add pragmas: // @project, // @feature:name, etc."
+  vim.notify(msg, vim.log.levels.INFO)
 
-    -- Try AI generation
-    vim.notify("[dwight] Generating project scope…", vim.log.levels.INFO)
-    M._generate_scope(desc)
+  -- Auto-suggest skill packs based on detected project type
+  pcall(function()
+    require("dwight.marketplace").auto_suggest()
   end)
 end
 
@@ -118,6 +122,11 @@ Under 80 lines. Reply with ONLY markdown in a fenced code block.
         table.concat(vim.tbl_map(function(n) return "@" .. n end, copied), ", ")
     end
     vim.notify(msg, vim.log.levels.INFO)
+
+    -- Auto-suggest skill packs based on detected project type
+    pcall(function()
+      require("dwight.marketplace").auto_suggest()
+    end)
   end)
 end
 
@@ -192,7 +201,27 @@ end
 
 function M._create_gitignore()
   local gi = io.open(M.dir() .. "/.gitignore", "w")
-  if gi then gi:write("usage.json\n"); gi:close() end
+  if gi then
+    gi:write(table.concat({
+      "# Private/session data — don't share",
+      "usage.json",
+      "session.log",
+      "logs/",
+      "runs/",
+      "prompts/",
+      "brainstorm/",
+      "agent/",
+      "artifacts/",
+      "auto/",
+      "audits/",
+      "plans/",
+      "whiteboard.md",
+      "",
+      "# Everything else (.dwight/skills/, libs/, templates/, dev/)",
+      "# is safe and recommended to commit.",
+    }, "\n") .. "\n")
+    gi:close()
+  end
 end
 
 --------------------------------------------------------------------
@@ -246,6 +275,14 @@ end
 --------------------------------------------------------------------
 
 function M.read_scope()
+  -- Try JIT project context from pragmas first
+  local jit_ok, jit_context = pcall(function()
+    local features = require("dwight.features")
+    return features.build_project_context()
+  end)
+  if jit_ok and jit_context then return jit_context end
+
+  -- Fallback: read project.md
   if not M.is_initialized() then return nil end
   local f = io.open(M.project_file(), "r")
   if not f then return nil end

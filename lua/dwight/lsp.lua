@@ -102,8 +102,13 @@ function M.gather_context(selection)
   local clients = get_clients(bufnr)
   local has_lsp = #clients > 0
 
+  -- Non-code filetypes: skip LSP entirely (whiteboard, docs, etc.)
+  local skip_lsp_types = { markdown = true, text = true, help = true, gitcommit = true, dwight_prompt = true }
+  local ft = selection.filetype or vim.bo[bufnr].filetype or "unknown"
+  if skip_lsp_types[ft] then has_lsp = false end
+
   local ctx = {
-    language    = selection.filetype or vim.bo[bufnr].filetype or "unknown",
+    language    = ft,
     filepath    = selection.filepath or vim.api.nvim_buf_get_name(bufnr),
     diagnostics = {},
     hover_info  = {},
