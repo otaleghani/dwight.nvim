@@ -162,10 +162,10 @@ end
 function M._register_commands()
   local cmd = vim.api.nvim_create_user_command
 
-  cmd("DwightInvoke", function() M.invoke() end,
+  cmd("DwightInvoke", function(o) M.invoke({ range = o.range }) end,
     { range = true, desc = "Invoke with prompt" })
 
-  cmd("DwightMode", function(o) M.invoke_mode(o.args) end,
+  cmd("DwightMode", function(o) M.invoke_mode(o.args, { range = o.range }) end,
     { nargs = 1, range = true,
       complete = function() return require_mod("modes").list() end,
       desc = "Invoke a mode" })
@@ -175,8 +175,8 @@ function M._register_commands()
   end, { nargs = "?", complete = function() return { "all" } end, desc = "Cancel job(s)" })
 
   -- Dot-repeat: replay last operation on new selection
-  cmd("DwightRepeat", function()
-    M.dot_repeat()
+  cmd("DwightRepeat", function(o)
+    M.dot_repeat({ range = o.range })
   end, { range = true, desc = "Repeat last dwight operation on current selection" })
 
   cmd("DwightInit", function() require_mod("project").init() end, { desc = "Initialize project" })
@@ -757,25 +757,43 @@ function M._register_commands()
 
   cmd("DwightDocs", function(o)
     local args = vim.trim(o.args or "")
-    if args:match("%-%-agentic") then
+    if args:match("%-%-update") then
+      local target = args:gsub("%-%-update%s*", ""):match("%S+")
+      require_mod("pubdocs").update_docs({ target = target })
+    elseif args:match("%-%-seo") then
+      local target = args:gsub("%-%-seo%s*", ""):match("%S+")
+      require_mod("pubdocs").seo_optimize({ target = target })
+    elseif args:match("%-%-agentic") then
       require_mod("pubdocs").generate_agentic()
     else
       require_mod("pubdocs").generate({ target = args ~= "" and args or nil })
     end
   end, {
-    nargs = "?",
-    complete = function()
+    nargs = "*",
+    complete = function(_, cmdline)
       local ok, pubdocs = pcall(require_mod, "pubdocs")
-      if not ok then return { "all", "--agentic" } end
+      if not ok then return { "all", "--agentic", "--update", "--seo" } end
+
+      -- If --seo or --update already typed, complete with page names
+      if cmdline:match("%-%-seo%s") or cmdline:match("%-%-update%s") then
+        local adapter = pubdocs.get_adapter()
+        local existing = pubdocs.scan_existing_docs(adapter)
+        local items = {}
+        for _, p in ipairs(existing) do
+          items[#items + 1] = p.path:gsub("%.md$", "")
+        end
+        return items
+      end
+
       local plan = pubdocs.build_plan()
-      local items = { "all", "--agentic" }
+      local items = { "all", "--agentic", "--update", "--seo" }
       for _, page in ipairs(plan) do
         items[#items + 1] = page.path:gsub("%.md$", "")
         if page.feature_name then items[#items + 1] = page.feature_name end
       end
       return items
     end,
-    desc = "Generate public docs (--agentic reads source, builds, verifies links)",
+    desc = "Generate/update docs (--agentic | --update | --seo [page])",
   })
 
   cmd("DwightDocsBrowse", function()
@@ -927,30 +945,75 @@ end
 --- Smart invoke: works in both visual and normal mode.
 --- In visual mode: uses the selection. In normal mode: uses treesitter
 --- to find the enclosing function/class/block at cursor.
-function M.invoke()
+--- Get selection using visual marks (range) or treesitter smart_select.
+--- Guaranteed to return a selection — falls back to paragraph at cursor.
+--- @param opts table|nil  { range = number }  (from command handler)
+function M._get_selection(opts)
+  opts = opts or {}
   local ui = require_mod("ui")
-  local mode = vim.fn.mode()
 
-  local selection
-  if mode == "v" or mode == "V" or mode == "\22" then
-    selection = ui.get_visual_selection()
-  else
-    -- Normal mode: smart select via treesitter
-    local ts_ok, ts = pcall(require, "dwight.treesitter")
-    if ts_ok then
-      selection = ts.smart_select()
-    end
+  -- 1. Visual mode: check if we were called with a range (from :'<,'>DwightInvoke
+  --    or a visual-mode keymap). vim.fn.mode() is always "n" here because
+  --    entering command mode exits visual, so we use the range flag instead.
+  local vim_mode = vim.fn.mode()
+  local is_visual = vim_mode == "v" or vim_mode == "V" or vim_mode == "\22"
+
+  if is_visual or (opts.range and opts.range > 0) then
+    local selection = ui.get_visual_selection()
+    if selection then return selection end
+    -- Visual marks invalid — fall through to smart select
   end
 
-  if not selection then
-    vim.notify("[dwight] No code selected. Use visual mode or place cursor inside a function.", vim.log.levels.WARN)
+  -- 2. Treesitter smart select (includes paragraph fallback)
+  local ts_ok, ts = pcall(require, "dwight.treesitter")
+  if ts_ok then
+    local selection = ts.smart_select()
+    if selection then return selection end
+  end
+
+  -- 3. Final fallback: select current line range as paragraph
+  local bufnr = vim.api.nvim_get_current_buf()
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  local total = vim.api.nvim_buf_line_count(bufnr)
+  local start_line = cursor[1]
+  local end_line = cursor[1]
+
+  while start_line > 1 do
+    local line = vim.api.nvim_buf_get_lines(bufnr, start_line - 2, start_line - 1, false)[1]
+    if vim.trim(line) == "" then break end
+    start_line = start_line - 1
+  end
+  while end_line < total do
+    local line = vim.api.nvim_buf_get_lines(bufnr, end_line, end_line + 1, false)[1]
+    if vim.trim(line) == "" then break end
+    end_line = end_line + 1
+  end
+
+  local lines = vim.api.nvim_buf_get_lines(bufnr, start_line - 1, end_line, false)
+  return {
+    bufnr = bufnr,
+    start_line = start_line,
+    end_line = end_line,
+    text = table.concat(lines, "\n"),
+    lines = lines,
+    filetype = vim.bo[bufnr].filetype,
+    filepath = vim.api.nvim_buf_get_name(bufnr),
+  }
+end
+
+function M.invoke(opts)
+  local selection = M._get_selection(opts)
+
+  if not selection or vim.trim(selection.text or "") == "" then
+    vim.notify("[dwight] No code at cursor. Place cursor inside a function or select code first.",
+      vim.log.levels.WARN)
     return
   end
 
   require_mod("ui").open_prompt(selection, nil)
 end
 
-function M.invoke_mode(mode_name)
+function M.invoke_mode(mode_name, opts)
   local modes = require_mod("modes")
   local mode = modes.get(mode_name)
   if not mode then
@@ -958,18 +1021,9 @@ function M.invoke_mode(mode_name)
     return
   end
 
-  local ui = require_mod("ui")
-  local vim_mode = vim.fn.mode()
-  local selection
+  local selection = M._get_selection(opts)
 
-  if vim_mode == "v" or vim_mode == "V" or vim_mode == "\22" then
-    selection = ui.get_visual_selection()
-  else
-    local ts_ok, ts = pcall(require, "dwight.treesitter")
-    if ts_ok then selection = ts.smart_select() end
-  end
-
-  if not selection then
+  if not selection or vim.trim(selection.text or "") == "" then
     vim.notify("[dwight] No code selected.", vim.log.levels.WARN)
     return
   end
@@ -997,24 +1051,15 @@ function M.store_last_op(prompt_text, mode_name, model_override, think_depth, op
 end
 
 --- Replay the last operation on current selection/smart-select.
-function M.dot_repeat()
+function M.dot_repeat(opts)
   if not M._last_operation then
     vim.notify("[dwight] No previous operation to repeat.", vim.log.levels.WARN)
     return
   end
 
-  local ui = require_mod("ui")
-  local vim_mode = vim.fn.mode()
-  local selection
+  local selection = M._get_selection(opts)
 
-  if vim_mode == "v" or vim_mode == "V" or vim_mode == "\22" then
-    selection = ui.get_visual_selection()
-  else
-    local ts_ok, ts = pcall(require, "dwight.treesitter")
-    if ts_ok then selection = ts.smart_select() end
-  end
-
-  if not selection then
+  if not selection or vim.trim(selection.text or "") == "" then
     vim.notify("[dwight] No code selected for repeat.", vim.log.levels.WARN)
     return
   end
