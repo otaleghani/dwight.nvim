@@ -86,6 +86,15 @@ local function gather_project_context()
     if full_ctx then parts[#parts + 1] = full_ctx end
   end)
 
+
+  -- Codebase digest: pre-extracted file signatures (the big speedup)
+  pcall(function()
+    local digest = require("dwight.digest")
+    local digest_text = digest.format_for_prompt()
+    if digest_text then
+      parts[#parts + 1] = digest_text
+    end
+  end)
   if #parts == 0 then
     return "(no project context detected)"
   end

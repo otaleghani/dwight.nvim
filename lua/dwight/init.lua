@@ -225,18 +225,9 @@ function M._register_commands()
     end
 
     local request = vim.trim(args)
-
-    -- If called with a visual range and no text args, use the selection as the prompt
-    if request == "" and o.range and o.range > 0 then
-      local lines = vim.api.nvim_buf_get_lines(0, o.line1 - 1, o.line2, false)
-      if lines and #lines > 0 then
-        request = vim.trim(table.concat(lines, "\n"))
-      end
-    end
-
     require_mod("agent").run(request ~= "" and request or nil, opts)
   end, {
-    nargs = "?", range = true,
+    nargs = "?",
     desc = "Autonomous agent (--plan = preview plan first, --jump = skip planning)",
   })
 
@@ -327,20 +318,9 @@ function M._register_commands()
 
   -- Autonomous mode: decompose + sequential agent execution
   cmd("DwightAuto", function(o)
-    local request = o.args ~= "" and o.args or nil
-
-    -- If called with a visual range and no text args, use the selection as the prompt
-    if not request and o.range and o.range > 0 then
-      local lines = vim.api.nvim_buf_get_lines(0, o.line1 - 1, o.line2, false)
-      if lines and #lines > 0 then
-        request = vim.trim(table.concat(lines, "\n"))
-        if request == "" then request = nil end
-      end
-    end
-
-    require_mod("auto").auto(request)
+    require_mod("auto").auto(o.args ~= "" and o.args or nil)
   end, {
-    nargs = "?", range = true,
+    nargs = "?",
     desc = "Autonomous mode: decompose complex request into sequential agent runs",
   })
 
@@ -892,6 +872,26 @@ function M._register_commands()
   cmd("DwightBrainstorms", function()
     require_mod("whiteboard").browse()
   end, { desc = "Browse saved brainstorms" })
+
+
+  -- Codebase digest
+  cmd("DwightDigest", function(o)
+    local args = o.args or ""
+    local digest = require_mod("digest")
+    if args:match("%-%-status") then
+      digest.status()
+    elseif args:match("%-%-clear") then
+      digest.clear()
+    elseif args:match("%-%-force") then
+      digest.build({ force = true })
+    else
+      digest.build()
+    end
+  end, {
+    nargs = "?",
+    complete = function() return { "--status", "--clear", "--force" } end,
+    desc = "Build codebase digest (--status, --clear, --force)",
+  })
 
   -- Commits with motive
   cmd("DwightCommit", function()
