@@ -415,12 +415,47 @@ end
 function M.smart_commit_message(task_num, total, title)
   local parts = {}
 
-  -- Header
-  if task_num and total then
-    parts[#parts + 1] = string.format("dwight(%d/%d): %s", task_num, total, title:sub(1, 50))
-  else
-    parts[#parts + 1] = "dwight: " .. (title or "automated change"):sub(1, 60)
+  -- Infer conventional commit type from the task title
+  local lower = (title or ""):lower()
+  local prefix = "feat"
+  if lower:match("fix") or lower:match("bug") or lower:match("repair") or lower:match("patch") then
+    prefix = "fix"
+  elseif lower:match("refactor") or lower:match("clean") or lower:match("reorganize") or lower:match("restructur") then
+    prefix = "refactor"
+  elseif lower:match("doc") or lower:match("readme") or lower:match("comment") then
+    prefix = "docs"
+  elseif lower:match("test") or lower:match("spec") or lower:match("coverage") then
+    prefix = "test"
+  elseif lower:match("style") or lower:match("format") or lower:match("lint") then
+    prefix = "style"
+  elseif lower:match("build") or lower:match("ci") or lower:match("deploy") or lower:match("pipeline") then
+    prefix = "ci"
+  elseif lower:match("chore") or lower:match("config") or lower:match("setup") or lower:match("deps") or lower:match("dependenc") then
+    prefix = "chore"
+  elseif lower:match("perf") or lower:match("optimi") or lower:match("speed") or lower:match("fast") then
+    prefix = "perf"
   end
+
+  -- Build a clean summary from the task title
+  local summary = title or "automated change"
+  -- Strip leading verbs that duplicate the prefix
+  summary = summary
+    :gsub("^%s*[Aa]dd%s+", "")
+    :gsub("^%s*[Ff]ix%s+", "")
+    :gsub("^%s*[Rr]efactor%s+", "")
+    :gsub("^%s*[Ii]mplement%s+", "")
+    :gsub("^%s*[Uu]pdate%s+", "")
+    :gsub("^%s*[Cc]reate%s+", "")
+  summary = vim.trim(summary)
+  -- Lowercase the first char for conventional commit style
+  if #summary > 0 then
+    summary = summary:sub(1, 1):lower() .. summary:sub(2)
+  end
+  -- Truncate to fit 72 char limit
+  local max_len = 72 - #prefix - 2
+  if #summary > max_len then summary = summary:sub(1, max_len) end
+
+  parts[#parts + 1] = string.format("%s: %s", prefix, summary)
 
   -- Get changed files grouped by type
   local stat = vim.fn.system("git diff --cached --stat --no-color 2>/dev/null")

@@ -147,7 +147,7 @@ function M._git_checkpoint(task_num, total, title, status)
     msg = integration.smart_commit_message(task_num, total, title)
   end)
   if not msg or msg == "" then
-    msg = string.format("dwight: task %d/%d — %s", task_num, total, title:sub(1, 60))
+    msg = string.format("feat: %s", title:sub(1, 65))
   end
 
   local _, commit_code = git_sync({ "commit", "-m", msg, "--no-verify" }, 10000)
@@ -1535,7 +1535,7 @@ function M._run_loop(tasks, start_from, master_request, master_started, status, 
     local diff_out, _ = git_sync({ "status", "--porcelain" }, 3000)
     if diff_out and vim.trim(diff_out) ~= "" then
       git_sync({ "add", "-A" }, 5000)
-      git_sync({ "commit", "-m", "dwight: pre-auto checkpoint", "--no-verify" }, 10000)
+      git_sync({ "commit", "-m", "chore: pre-session checkpoint", "--no-verify" }, 10000)
       status.append("📌 Initial git checkpoint saved")
     end
   end

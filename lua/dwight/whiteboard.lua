@@ -53,7 +53,11 @@ function M.open()
       f:write(table.concat({
         "# Whiteboard",
         "",
-        "Brain dump ideas here. Select text and use dwight modes on it.",
+        "Brain dump ideas here. Select text and fire it off:",
+        "",
+        "  <leader>da  → DwightAgent (execute immediately)",
+        "  <leader>dp  → DwightAgent (plan first)",
+        "  <leader>dA  → DwightAuto  (decompose into tasks)",
         "",
         "---",
         "",
@@ -65,9 +69,100 @@ function M.open()
 
   vim.cmd("vsplit " .. vim.fn.fnameescape(path))
   vim.cmd("vertical resize 70")
-  vim.bo[api.nvim_get_current_buf()].filetype = "markdown"
+  local buf = api.nvim_get_current_buf()
+  vim.bo[buf].filetype = "markdown"
   local lines = api.nvim_buf_line_count(0)
   api.nvim_win_set_cursor(0, { lines, 0 })
+
+  -- Set up whiteboard-specific keymaps
+  M._setup_keymaps(buf)
+end
+
+--------------------------------------------------------------------
+-- Fire selection as prompt → DwightAgent / DwightAuto
+--------------------------------------------------------------------
+
+--- Grab visual selection text from a buffer.
+local function get_visual_text()
+  vim.cmd('noautocmd normal! "vy')
+  local bufnr = api.nvim_get_current_buf()
+  local start_pos = api.nvim_buf_get_mark(bufnr, "<")
+  local end_pos = api.nvim_buf_get_mark(bufnr, ">")
+  if start_pos[1] == 0 and end_pos[1] == 0 then return nil end
+
+  local lines = api.nvim_buf_get_lines(bufnr, start_pos[1] - 1, end_pos[1], false)
+  if not lines or #lines == 0 then return nil end
+  return vim.trim(table.concat(lines, "\n"))
+end
+
+--- Fire the visual selection as a prompt for the given target.
+--- @param target "agent"|"auto"
+--- @param opts table|nil  extra opts for agent.run()
+function M.fire(target, opts)
+  local text = get_visual_text()
+  if not text or text == "" then
+    vim.notify("[dwight] No text selected. Select your brainstorm text first.", vim.log.levels.WARN)
+    return
+  end
+
+  -- Strip markdown headings/horizontal rules — keep the substance
+  local cleaned = text
+    :gsub("^#+%s+[^\n]*\n?", "")
+    :gsub("\n%-%-%-\n?", "\n")
+  cleaned = vim.trim(cleaned)
+  if cleaned == "" then cleaned = text end
+
+  local preview = cleaned:sub(1, 60):gsub("\n", " ")
+  if #cleaned > 60 then preview = preview .. "…" end
+
+  if target == "agent" then
+    opts = opts or {}
+    vim.notify(string.format("[dwight] 🚀 Firing agent: %s", preview), vim.log.levels.INFO)
+    require("dwight.agent").run(cleaned, opts)
+  elseif target == "auto" then
+    vim.notify(string.format("[dwight] 🤖 Firing auto: %s", preview), vim.log.levels.INFO)
+    require("dwight.auto").auto(cleaned)
+  else
+    vim.notify("[dwight] Unknown target: " .. tostring(target), vim.log.levels.ERROR)
+  end
+end
+
+--- Set up whiteboard-specific keymaps on a buffer.
+function M._setup_keymaps(buf)
+  local mopts = { buffer = buf, silent = true }
+
+  -- Visual mode: fire selection as prompt
+  vim.keymap.set("v", "<leader>da", function()
+    M.fire("agent")
+  end, vim.tbl_extend("force", mopts, { desc = "Dwight: fire selection → Agent" }))
+
+  vim.keymap.set("v", "<leader>dp", function()
+    M.fire("agent", { plan = true })
+  end, vim.tbl_extend("force", mopts, { desc = "Dwight: fire selection → Agent (plan first)" }))
+
+  vim.keymap.set("v", "<leader>dA", function()
+    M.fire("auto")
+  end, vim.tbl_extend("force", mopts, { desc = "Dwight: fire selection → Auto" }))
+
+  -- Buffer-local command that works with visual range
+  api.nvim_buf_create_user_command(buf, "DwightFire", function(o)
+    local target = o.args ~= "" and o.args or "agent"
+    M.fire(target)
+  end, {
+    range = true, nargs = "?",
+    complete = function() return { "agent", "auto" } end,
+    desc = "Fire visual selection as prompt (agent|auto)",
+  })
+
+  -- Show hint on first open
+  if not M._keymaps_hinted then
+    M._keymaps_hinted = true
+    vim.defer_fn(function()
+      vim.notify(
+        "[dwight] Whiteboard: select text → <leader>da (Agent) | <leader>dA (Auto) | <leader>dp (Agent+plan)",
+        vim.log.levels.INFO)
+    end, 200)
+  end
 end
 
 --------------------------------------------------------------------

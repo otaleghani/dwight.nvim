@@ -58,6 +58,90 @@ local function get_recent_jobs(max_jobs)
 end
 
 --------------------------------------------------------------------
+-- Strip LLM preamble from commit messages
+--------------------------------------------------------------------
+
+--- Conventional commit prefixes pattern list
+local COMMIT_PREFIXES = {
+  "^feat[:(]", "^fix[:(]", "^refactor[:(]", "^docs[:(]", "^chore[:(]",
+  "^test[:(]", "^style[:(]", "^perf[:(]", "^ci[:(]", "^build[:(]",
+  "^revert[:(]", "^merge[:(]",
+  "^feat: ", "^fix: ", "^refactor: ", "^docs: ", "^chore: ",
+  "^test: ", "^style: ", "^perf: ", "^ci: ", "^build: ",
+  "^revert: ",
+}
+
+--- Imperative verbs commonly starting commit titles
+local IMPERATIVE_VERBS = {
+  "^Add ", "^Fix ", "^Update ", "^Remove ", "^Implement ", "^Refactor ",
+  "^Create ", "^Delete ", "^Move ", "^Rename ", "^Extract ", "^Improve ",
+  "^Handle ", "^Support ", "^Enable ", "^Disable ", "^Set ", "^Use ",
+  "^Replace ", "^Clean ", "^Merge ", "^Revert ", "^Bump ", "^Upgrade ",
+  "^Initial ", "^Introduce ", "^Migrate ", "^Simplify ", "^Convert ",
+}
+
+--- Check if a line looks like a valid commit title.
+local function looks_like_commit_title(line)
+  local trimmed = vim.trim(line)
+  if trimmed == "" then return false end
+  if #trimmed > 100 then return false end
+  -- Smells like prose/monologue
+  if trimmed:match("^I ") or trimmed:match("^Now ") or trimmed:match("^Let me")
+    or trimmed:match("^Here") or trimmed:match("^So ") or trimmed:match("^The ")
+    or trimmed:match("^This is") or trimmed:match("^Based on")
+    or trimmed:match("^OK") or trimmed:match("^Alright")
+    or trimmed:match("^Sure") or trimmed:match("^Looking") then
+    return false
+  end
+
+  local lower = trimmed:lower()
+  for _, pat in ipairs(COMMIT_PREFIXES) do
+    if lower:match(pat) then return true end
+  end
+  for _, pat in ipairs(IMPERATIVE_VERBS) do
+    if trimmed:match(pat) then return true end
+  end
+  return false
+end
+
+--- Strip LLM preamble/monologue from a generated commit message.
+--- Detects and removes any text before the actual commit title.
+local function strip_preamble(raw)
+  -- Strip fences
+  local msg = raw:gsub("^```%w*\n", ""):gsub("\n```%s*$", "")
+  msg = vim.trim(msg)
+
+  local lines = vim.split(msg, "\n", { plain = true })
+  if #lines <= 2 then return msg end
+
+  -- If first line already looks like a commit title, return as-is
+  if looks_like_commit_title(lines[1]) then return msg end
+
+  -- Find the first line that looks like a title
+  for i, line in ipairs(lines) do
+    if looks_like_commit_title(line) then
+      local rest = {}
+      for j = i, #lines do rest[#rest + 1] = lines[j] end
+      return vim.trim(table.concat(rest, "\n"))
+    end
+  end
+
+  -- Last resort: take the first non-empty line under 72 chars that isn't
+  -- obviously prose (doesn't end with a period or contain "I ")
+  for i, line in ipairs(lines) do
+    local trimmed = vim.trim(line)
+    if trimmed ~= "" and #trimmed <= 72
+      and not trimmed:match("%.$") and not trimmed:match(" I ") then
+      local rest = {}
+      for j = i, #lines do rest[#rest + 1] = lines[j] end
+      return vim.trim(table.concat(rest, "\n"))
+    end
+  end
+
+  return msg
+end
+
+--------------------------------------------------------------------
 -- Generate commit message
 --------------------------------------------------------------------
 
@@ -71,7 +155,7 @@ function M.generate()
   local files = get_staged_files() or ""
   local jobs = get_recent_jobs(5)
 
-  local prompt = string.format([[
+  local prompt = string.format([=[
 Generate a git commit message for the following staged changes.
 
 Staged files:
@@ -84,16 +168,25 @@ Recent AI-assisted changes (context for WHY these changes were made):
 %s
 
 Rules:
-1. First line: concise summary (max 72 chars), imperative mood ("Add", "Fix", "Refactor")
-2. Blank line after summary
-3. Body: explain WHY the changes were made, not just what changed
-4. If AI-assisted changes context is available, use it to explain the motivation
-5. Reference specific files/functions when relevant
-6. Keep body lines under 80 chars
-7. Use conventional commit format if the project uses it (feat:, fix:, refactor:, etc.)
+1. Use conventional commit format: type: subject
+   Types: feat, fix, refactor, docs, chore, test, style, perf, ci, build
+2. First line: "type: concise summary" (max 72 chars total, imperative mood)
+3. Blank line after summary
+4. Body: explain WHY the changes were made, not just what changed
+5. If AI-assisted changes context is available, use it to explain the motivation
+6. Reference specific files/functions when relevant
+7. Keep body lines under 80 chars
 
-Respond with ONLY the commit message. No fences, no preamble.
-]], files, diff, jobs ~= "" and jobs or "(no recent AI changes)")
+CRITICAL: Your response must start with the commit message on the very first line.
+Do NOT include any preamble, explanation, analysis, thinking, or commentary.
+The first character of your response must be the commit type (feat, fix, etc.).
+
+Example response format:
+feat: add rate limiting to API gateway
+
+Implement token bucket algorithm to prevent abuse.
+Configurable per-route limits via gateway.yml.
+]=], files, diff, jobs ~= "" and jobs or "(no recent AI changes)")
 
   vim.notify("[dwight] Generating commit message…", vim.log.levels.INFO)
 
@@ -109,10 +202,7 @@ Respond with ONLY the commit message. No fences, no preamble.
       return
     end
 
-    -- Clean up: strip any accidental fences
-    local msg = raw:gsub("^```%w*\n", ""):gsub("\n```%s*$", "")
-    msg = vim.trim(msg)
-
+    local msg = strip_preamble(raw)
     log.finish(job_id, "success", raw, msg:sub(1, 200), nil)
     M._open_commit_editor(msg)
   end)
@@ -208,16 +298,10 @@ function M.generate_auto(task_title, task_num, total, callback)
 
   local files = git_sync({ "diff", "HEAD~1..HEAD", "--name-only" }) or ""
 
-  local task_ctx = ""
-  if task_num and total then
-    task_ctx = string.format("This is task %d of %d in an automated multi-step session.\nTask: %s",
-      task_num, total, task_title)
-  else
-    task_ctx = "Task: " .. (task_title or "automated change")
-  end
+  local task_ctx = "Task: " .. (task_title or "automated change")
 
-  local prompt = string.format([[
-Generate a git commit message for the following changes made by an AI agent.
+  local prompt = string.format([=[
+Generate a git commit message for the following changes.
 
 %s
 
@@ -228,23 +312,26 @@ Diff:
 %s
 
 Rules:
-1. First line: concise summary (max 72 chars), imperative mood ("Add", "Fix", "Refactor")
-2. Use conventional commit format: feat:, fix:, refactor:, docs:, chore:, test:
+1. Use conventional commit format: type: subject
+   Types: feat, fix, refactor, docs, chore, test, style, perf, ci, build
+2. First line: "type: concise summary" (max 72 chars total, imperative mood)
 3. Blank line after summary
 4. Body: 1-3 lines explaining what was done and why (based on the task description)
 5. Keep body lines under 80 chars
-6. Do NOT mention "AI", "agent", "dwight", or "automated" in the message
+6. Do NOT mention "AI", "agent", "dwight", "automated", or "LLM" in the message
+7. Write it exactly like a human developer would
 
-Respond with ONLY the commit message. No fences, no preamble.
-]], task_ctx, files, diff)
+CRITICAL: Your response must start with the commit message on the very first line.
+Do NOT include any preamble, explanation, analysis, thinking, or commentary.
+The first character of your response must be the commit type (feat, fix, etc.).
+]=], task_ctx, files, diff)
 
   require("dwight.skills")._run_llm(prompt, function(raw, exit_code)
     if exit_code ~= 0 or not raw or vim.trim(raw) == "" then
       callback(nil)
       return
     end
-    local msg = raw:gsub("^```%w*\n", ""):gsub("\n```%s*$", "")
-    callback(vim.trim(msg))
+    callback(strip_preamble(raw))
   end)
 end
 
