@@ -1059,7 +1059,7 @@ end
 
 --- Build a focused agent prompt for generating a single documentation page.
 --- The agent reads source files, existing docs, and writes ONE page.
-local function build_page_agent_prompt(page, all_pages, adapter, fw)
+local function build_page_agent_prompt(page, all_pages, adapter, fw, link_style)
   local features = require("dwight.features")
   local docs_dir = adapter.docs_dir()
   local parts = {}
@@ -1073,13 +1073,28 @@ Framework: %s
 Output directory: %s/
 ]], page.path, page.title, page.page_type, fw, docs_dir)
 
+  -- Link format instructions (if detected from existing docs)
+  if link_style and link_style ~= "markdown" then
+    parts[#parts + 1] = link_style_instructions(link_style, all_pages)
+  end
+
   -- Cross-reference map (so the agent writes correct links)
   parts[#parts + 1] = "## All Documentation Pages (for cross-references)"
-  parts[#parts + 1] = "Use relative markdown links between pages. Available pages:"
-  for _, p in ipairs(all_pages) do
-    if p.path ~= page.path then
-      local link = adapter.link(page.path, p.path, p.title)
-      parts[#parts + 1] = string.format("  - %s — %s → link: %s", p.path, p.title, link)
+  if link_style == "wikilinks" then
+    parts[#parts + 1] = "Use wikilinks between pages (matching the existing docs). Available pages:"
+    for _, p in ipairs(all_pages) do
+      if p.path ~= page.path then
+        parts[#parts + 1] = string.format("  - %s — %s → [[%s]]",
+          p.path, p.title, (p.title or p.path:gsub("%.md$", "")))
+      end
+    end
+  else
+    parts[#parts + 1] = "Use relative markdown links between pages. Available pages:"
+    for _, p in ipairs(all_pages) do
+      if p.path ~= page.path then
+        local link = adapter.link(page.path, p.path, p.title)
+        parts[#parts + 1] = string.format("  - %s — %s → link: %s", p.path, p.title, link)
+      end
     end
   end
   parts[#parts + 1] = ""
@@ -1229,15 +1244,19 @@ Be clear, educational. Use analogies if helpful.]],
 Create a documentation page based on the source context.
 Read the relevant source files first. Be clear, user-focused, include real examples.]]
 
+  local link_hint = link_style == "wikilinks"
+    and "Use wikilinks for cross-references (matching existing docs style)."
+    or "Use correct relative links to other pages (see cross-reference map above)."
+
   parts[#parts + 1] = string.format([[
 
 ## Output
 Write the page to: %s/%s
 Include proper frontmatter for %s framework.
-Use correct relative links to other pages (see cross-reference map above).
+%s
 Do NOT modify any source code files.
 Do NOT create any files other than the one documentation page.
-]], docs_dir, page.path, fw)
+]], docs_dir, page.path, fw, link_hint)
 
   return table.concat(parts, "\n")
 end
@@ -1245,6 +1264,7 @@ end
 --- Execute the docs pipeline: generate pages sequentially, one agent per page.
 function M._run_docs_pipeline(pages, adapter, fw, opts)
   opts = opts or {}
+  local link_style = opts.link_style or "markdown"
   local total = #pages
   local generated = 0
   local errors = {}
@@ -1258,6 +1278,9 @@ function M._run_docs_pipeline(pages, adapter, fw, opts)
   status.start_session(string.format("DwightDocs: %d pages [%s]", total, fw))
   status.append(string.format("📄 Generating %d documentation pages", total))
   status.append(string.format("   Framework: %s → %s/", fw, docs_dir))
+  if link_style ~= "markdown" then
+    status.append(string.format("   Link style: %s (preserving existing format)", link_style))
+  end
   status.append("")
 
   -- Sequential execution: one page at a time
@@ -1280,7 +1303,7 @@ function M._run_docs_pipeline(pages, adapter, fw, opts)
     status.append(string.format("── Page %d/%d ──────────────────────────────────", idx, total))
     status.append(string.format("  %s %s — %s", icon, page.path, page.title))
 
-    local prompt = build_page_agent_prompt(page, pages, adapter, fw)
+    local prompt = build_page_agent_prompt(page, pages, adapter, fw, link_style)
 
     local agent = require("dwight.agent")
     agent.run(prompt, {
@@ -1330,9 +1353,22 @@ function M._docs_post_generate(pages, adapter, fw, generated, errors, status)
     end
   end)
 
-  -- Link verification: grep for markdown links and check targets
+  -- Link verification: check both markdown links and wikilinks
   local broken_links = {}
+  local link_style = M.detect_link_style(pages)
   pcall(function()
+    -- Build a lookup of known page titles (for wikilink resolution)
+    local known_titles = {}
+    local known_paths = {}
+    for _, kp in ipairs(pages) do
+      local path_no_ext = kp.path:gsub("%.md$", "")
+      local basename = vim.fn.fnamemodify(kp.path, ":t"):gsub("%.md$", "")
+      known_titles[(kp.title or ""):lower()] = kp.path
+      known_paths[kp.path] = true
+      known_paths[path_no_ext] = true
+      known_titles[basename:lower()] = kp.path
+    end
+
     for _, p in ipairs(pages) do
       local full = docs_dir .. "/" .. p.path
       if vim.fn.filereadable(full) == 1 then
@@ -1342,9 +1378,9 @@ function M._docs_post_generate(pages, adapter, fw, generated, errors, status)
           local line_num = 0
           for line in content:gmatch("[^\n]+") do
             line_num = line_num + 1
-            -- Match markdown links: [text](path.md) or [text](../path.md)
+
+            -- Check markdown links: [text](path.md) or [text](../path.md)
             for link_path in line:gmatch("%]%(([^%)]+%.md[^%)]*)%)") do
-              -- Resolve relative path
               local page_dir = vim.fn.fnamemodify(p.path, ":h")
               local resolved
               if page_dir == "." then
@@ -1352,9 +1388,7 @@ function M._docs_post_generate(pages, adapter, fw, generated, errors, status)
               else
                 resolved = page_dir .. "/" .. link_path
               end
-              -- Normalize ../ references
               resolved = resolved:gsub("[^/]+/%.%./", "")
-              -- Strip anchors
               resolved = resolved:gsub("#.*$", "")
 
               local target = docs_dir .. "/" .. resolved
@@ -1363,6 +1397,51 @@ function M._docs_post_generate(pages, adapter, fw, generated, errors, status)
                   file = full, lnum = line_num,
                   text = string.format("Broken link: [...](%s) → %s not found", link_path, resolved),
                 }
+              end
+            end
+
+            -- Check wikilinks: [[Page Name]] or [[Page Name|Display Text]]
+            for wikilink in line:gmatch("%[%[([^%]]+)%]%]") do
+              local target_name = wikilink:match("^([^|]+)") or wikilink
+              target_name = vim.trim(target_name)
+              -- Try to resolve: exact title match, basename match, or path match
+              local resolved = known_titles[target_name:lower()]
+              if not resolved then
+                -- Try as file path
+                local as_path = target_name:gsub(" ", "-") .. ".md"
+                local as_path2 = target_name .. ".md"
+                if not known_paths[as_path] and not known_paths[as_path2]
+                  and not known_paths[target_name] and not known_paths[target_name .. ".md"] then
+                  -- Check if file exists on disk (might not be in our pages list)
+                  local found_on_disk = false
+                  local search_paths = {
+                    docs_dir .. "/" .. as_path2,
+                    docs_dir .. "/" .. as_path,
+                    docs_dir .. "/" .. target_name .. ".md",
+                    docs_dir .. "/" .. target_name,
+                  }
+                  -- Also search subdirectories
+                  local dir_handle = (vim.loop or vim.uv).fs_scandir(docs_dir)
+                  if dir_handle then
+                    while true do
+                      local name, ftype = (vim.loop or vim.uv).fs_scandir_next(dir_handle)
+                      if not name then break end
+                      if ftype == "directory" then
+                        search_paths[#search_paths + 1] = docs_dir .. "/" .. name .. "/" .. as_path2
+                        search_paths[#search_paths + 1] = docs_dir .. "/" .. name .. "/" .. as_path
+                      end
+                    end
+                  end
+                  for _, sp in ipairs(search_paths) do
+                    if vim.fn.filereadable(sp) == 1 then found_on_disk = true; break end
+                  end
+                  if not found_on_disk then
+                    broken_links[#broken_links + 1] = {
+                      file = full, lnum = line_num,
+                      text = string.format("Broken wikilink: [[%s]] → no matching page found", wikilink),
+                    }
+                  end
+                end
               end
             end
           end
@@ -1391,13 +1470,13 @@ function M._docs_post_generate(pages, adapter, fw, generated, errors, status)
     if vim.fn.filereadable(full_path) == 1 then
       qf_items[#qf_items + 1] = {
         filename = full_path, lnum = 1,
-        text = "✅ " .. p.title .. " [" .. p.page_type .. "]",
+        text = "✅ " .. (p.title or p.path) .. " [" .. (p.page_type or "docs") .. "]",
         type = "I",
       }
     elseif is_err then
       qf_items[#qf_items + 1] = {
         filename = full_path, lnum = 1,
-        text = "❌ " .. p.title .. " (not generated)",
+        text = "❌ " .. (p.title or p.path) .. " (not generated)",
         type = "E",
       }
     end
@@ -1467,11 +1546,17 @@ function M.generate_agentic(opts)
   local adapter, fw = M.get_adapter()
   vim.fn.mkdir(adapter.docs_dir(), "p")
 
+  -- Detect link style from existing docs (if any)
+  local existing = M.scan_existing_docs(adapter)
+  local link_style = #existing > 0 and M.detect_link_style(existing) or "markdown"
+  opts.link_style = link_style
+
   -- Build the editable plan buffer
   local plan_lines = {}
   plan_lines[#plan_lines + 1] = "# 📄 DwightDocs — Agentic Documentation Plan"
   plan_lines[#plan_lines + 1] = ""
-  plan_lines[#plan_lines + 1] = string.format("Framework: %s | Output: %s/", fw, adapter.docs_dir())
+  local ls_str = link_style ~= "markdown" and (" | Link style: " .. link_style) or ""
+  plan_lines[#plan_lines + 1] = string.format("Framework: %s | Output: %s/%s", fw, adapter.docs_dir(), ls_str)
   plan_lines[#plan_lines + 1] = ""
   plan_lines[#plan_lines + 1] = "## Pages to Generate"
   plan_lines[#plan_lines + 1] = "Edit this list: remove lines to skip pages, reorder as needed."
@@ -1566,6 +1651,1111 @@ function M.generate_agentic(opts)
   end
 
   -- Keybindings
+  local map_opts = { buffer = buf, nowait = true, silent = true }
+  vim.keymap.set("n", "y", run_pipeline, map_opts)
+  vim.keymap.set("n", "<CR>", run_pipeline, map_opts)
+  vim.keymap.set("n", "e", enable_edit, map_opts)
+  vim.keymap.set("n", "q", close, map_opts)
+  vim.keymap.set("n", "n", close, map_opts)
+  vim.keymap.set("n", "<Esc>", close, map_opts)
+end
+
+--------------------------------------------------------------------
+-- Scan existing docs directory (framework-agnostic)
+--------------------------------------------------------------------
+
+--- Scan the docs directory and return a list of existing pages with metadata.
+--- Works with ANY docs, not just Dwight-generated ones.
+function M.scan_existing_docs(adapter)
+  local dir = adapter.docs_dir()
+  if vim.fn.isdirectory(dir) ~= 1 then return {} end
+
+  local uv = vim.loop or vim.uv
+  local pages = {}
+
+  local function scan(d, prefix)
+    local handle = uv.fs_scandir(d)
+    if not handle then return end
+    while true do
+      local name, ftype = uv.fs_scandir_next(handle)
+      if not name then break end
+      if name:match("^[_%.]") then goto continue end
+      local rel = prefix ~= "" and (prefix .. "/" .. name) or name
+      if ftype == "directory" then
+        scan(d .. "/" .. name, rel)
+      elseif ftype == "file" and name:match("%.md$") then
+        local full = d .. "/" .. name
+        local stat = uv.fs_stat(full)
+        local mtime = stat and stat.mtime and stat.mtime.sec or 0
+
+        local title, description, word_count, headings, link_count, body
+        local f = io.open(full, "r")
+        if f then
+          local content = f:read("*a"); f:close()
+          body = content
+
+          -- Frontmatter title
+          title = content:match("^%-%-%-.-\ntitle:%s*\"?([^\"\n]+)\"?")
+            or content:match("^%-%-%-.-\ntitle:%s*([^\n]+)")
+          description = content:match("^%-%-%-.-\ndescription:%s*\"?([^\"\n]+)\"?")
+            or content:match("^%-%-%-.-\ndescription:%s*([^\n]+)")
+          -- Fallback: first # heading
+          if not title then
+            title = content:match("^#%s+([^\n]+)") or content:match("\n#%s+([^\n]+)")
+          end
+          if not title then title = name:gsub("%.md$", "") end
+
+          -- Strip frontmatter for analysis
+          local body_text = content:gsub("^%-%-%-.-%-%-%-\n?", "")
+          -- Strip code blocks for word count
+          local prose = body_text:gsub("```.-```", ""):gsub("`[^`]+`", "")
+          word_count = select(2, prose:gsub("%S+", "")) or 0
+
+          -- Extract headings
+          headings = {}
+          for level, text in body_text:gmatch("\n(#+)%s+([^\n]+)") do
+            headings[#headings + 1] = { level = #level, text = vim.trim(text) }
+          end
+          -- Also first heading if at start of body
+          local fl, ft = body_text:match("^(#+)%s+([^\n]+)")
+          if fl then table.insert(headings, 1, { level = #fl, text = vim.trim(ft) }) end
+
+          -- Count internal links (both styles)
+          link_count = 0
+          local md_link_count = 0
+          local wiki_link_count = 0
+          for _ in content:gmatch("%]%(.-%.md") do md_link_count = md_link_count + 1 end
+          -- Also count markdown links without .md extension (Docusaurus style)
+          for _ in content:gmatch("%]%([%.%/][^%)]+%)") do md_link_count = md_link_count + 1 end
+          -- Wikilinks: [[Page Name]] or [[Page Name|Display Text]]
+          for _ in content:gmatch("%[%[[^%]]+%]%]") do wiki_link_count = wiki_link_count + 1 end
+          link_count = md_link_count + wiki_link_count
+        end
+
+        pages[#pages + 1] = {
+          path = rel,
+          full_path = full,
+          title = vim.trim(title or ""),
+          description = description and vim.trim(description) or nil,
+          mtime = mtime,
+          word_count = word_count or 0,
+          headings = headings or {},
+          link_count = link_count or 0,
+          md_link_count = md_link_count or 0,
+          wiki_link_count = wiki_link_count or 0,
+        }
+      end
+      ::continue::
+    end
+  end
+  scan(dir, "")
+  table.sort(pages, function(a, b) return a.path < b.path end)
+  return pages
+end
+
+--------------------------------------------------------------------
+-- Link style detection: wikilinks vs markdown links
+--------------------------------------------------------------------
+
+--- Detect the dominant link style across all existing pages.
+--- Returns "wikilinks" | "markdown" | "mixed"
+function M.detect_link_style(pages)
+  local total_md = 0
+  local total_wiki = 0
+  for _, p in ipairs(pages) do
+    total_md = total_md + (p.md_link_count or 0)
+    total_wiki = total_wiki + (p.wiki_link_count or 0)
+  end
+  if total_wiki > 0 and total_md == 0 then return "wikilinks" end
+  if total_md > 0 and total_wiki == 0 then return "markdown" end
+  if total_wiki > total_md then return "wikilinks" end
+  if total_md > total_wiki then return "markdown" end
+  if total_md == 0 and total_wiki == 0 then return "markdown" end
+  return "mixed"
+end
+
+--- Build link style instructions for agent prompts based on detected style.
+--- Extracts examples from existing content to show the actual format in use.
+local function link_style_instructions(link_style, pages)
+  if link_style == "wikilinks" then
+    -- Find a real wikilink example from the docs
+    local example = nil
+    for _, p in ipairs(pages) do
+      if p.wiki_link_count and p.wiki_link_count > 0 then
+        local content = read_existing_page({ docs_dir = function()
+          return vim.fn.fnamemodify(p.full_path, ":h:h")
+        end }, p.path)
+        -- Try reading directly
+        if not content then
+          local f = io.open(p.full_path, "r")
+          if f then content = f:read("*a"); f:close() end
+        end
+        if content then
+          example = content:match("%[%[[^%]]+%]%]")
+        end
+        if example then break end
+      end
+    end
+    return string.format([==[
+## Link Format — CRITICAL
+This documentation uses **wikilinks** (Obsidian/wiki style), NOT standard markdown links.
+
+CORRECT: [[Page Name]] or [[Page Name|Display Text]]
+WRONG:   [Display Text](./path/to/page.md)
+WRONG:   [Display Text](../relative/path)
+
+%s
+You MUST use wikilinks for ALL internal links. Do NOT convert existing wikilinks
+to markdown links. Do NOT use relative paths in parentheses.
+If adding new links to other pages, use the same wikilink format as the existing docs.
+]==], example and ("Example from existing docs: " .. example) or "")
+  end
+
+  if link_style == "mixed" then
+    return [==[
+## Link Format — CRITICAL
+This documentation uses a MIX of link styles. PRESERVE whatever link format
+each page already uses. Do NOT convert between formats.
+
+If a page uses wikilinks like [[Page Name]], keep using wikilinks.
+If a page uses markdown links like [Text](./path.md), keep using markdown links.
+Match the EXISTING style of the page you are editing.
+]==]
+  end
+
+  -- Default: standard markdown
+  return [[
+## Link Format
+Use standard markdown links with relative paths for cross-references.
+Example: [Getting Started](./getting-started.md) or [Auth](../features/auth.md)
+]]
+end
+
+--------------------------------------------------------------------
+-- Detect stale pages: compare doc mtime with source file changes
+--------------------------------------------------------------------
+
+--- For each doc page, find recent source changes that may affect it.
+--- Returns a list of { page, changes = { ... }, staleness_days }
+function M._detect_stale_pages(existing_pages, adapter)
+  local uv = vim.loop or vim.uv
+  local stale = {}
+
+  for _, page in ipairs(existing_pages) do
+    -- Get git commits that touched files since the doc was last modified
+    local since_ts = os.date("!%Y-%m-%dT%H:%M:%SZ", page.mtime)
+    local cmd = string.format(
+      "git log --since='%s' --name-only --pretty=format:'%%h %%s' -- . ':!%s' 2>/dev/null",
+      since_ts, adapter.docs_dir():gsub("^" .. vim.pesc(vim.fn.getcwd()) .. "/?", ""))
+    local output = vim.fn.system(cmd)
+
+    if output and vim.trim(output) ~= "" then
+      local changes = {}
+      local current_commit = nil
+      for line in output:gmatch("[^\n]+") do
+        if line:match("^%x+%s") then
+          current_commit = line
+        elseif vim.trim(line) ~= "" and current_commit then
+          changes[#changes + 1] = { commit = current_commit, file = vim.trim(line) }
+        end
+      end
+
+      if #changes > 0 then
+        local days_stale = math.floor((os.time() - page.mtime) / 86400)
+        stale[#stale + 1] = {
+          page = page,
+          changes = changes,
+          staleness_days = days_stale,
+          change_count = #changes,
+        }
+      end
+    end
+  end
+
+  -- Sort by staleness (most stale first)
+  table.sort(stale, function(a, b) return a.change_count > b.change_count end)
+  return stale
+end
+
+--------------------------------------------------------------------
+-- :DwightDocs --update — update existing docs based on recent changes
+--------------------------------------------------------------------
+
+--- Build per-page agent prompt for updating an existing doc.
+local function build_update_prompt(page_info, changes, all_pages, adapter, fw, link_style)
+  local docs_dir = adapter.docs_dir()
+  local parts = {}
+
+  parts[#parts + 1] = string.format([[
+You are UPDATING an existing documentation page: %s
+Title: %s
+Framework: %s
+Output directory: %s/
+
+IMPORTANT: This page already exists. You are updating it, not rewriting from scratch.
+Preserve the existing structure, tone, style, and link format. Only change what needs to change.
+]], page_info.path, page_info.title, fw, docs_dir)
+
+  -- Link format instructions (detected from existing docs)
+  parts[#parts + 1] = link_style_instructions(link_style, all_pages)
+
+  -- Cross-reference map
+  parts[#parts + 1] = "## Other Documentation Pages (for cross-references)"
+  if link_style == "wikilinks" then
+    for _, p in ipairs(all_pages) do
+      if p.path ~= page_info.path then
+        parts[#parts + 1] = string.format("  - %s — %s → [[%s]]",
+          p.path, p.title or p.path, (p.title or p.path:gsub("%.md$", "")))
+      end
+    end
+  else
+    for _, p in ipairs(all_pages) do
+      if p.path ~= page_info.path then
+        local link = adapter.link(page_info.path, p.path, p.title or p.path)
+        parts[#parts + 1] = string.format("  - %s → %s", p.path, link)
+      end
+    end
+  end
+  parts[#parts + 1] = ""
+
+  -- Changes since last update
+  parts[#parts + 1] = string.format("## Source Changes Since Last Update (%d days ago)", page_info.staleness_days or 0)
+  parts[#parts + 1] = "These source files changed after the documentation was last modified:"
+  local seen_files = {}
+  local change_files = {}
+  for _, c in ipairs(changes) do
+    if not seen_files[c.file] then
+      seen_files[c.file] = true
+      change_files[#change_files + 1] = c.file
+    end
+  end
+  for _, f in ipairs(change_files) do
+    parts[#parts + 1] = "  - " .. f
+  end
+  parts[#parts + 1] = ""
+
+  -- List commits for context
+  local seen_commits = {}
+  parts[#parts + 1] = "## Recent Commits"
+  for _, c in ipairs(changes) do
+    if not seen_commits[c.commit] then
+      seen_commits[c.commit] = true
+      parts[#parts + 1] = "  - " .. c.commit
+    end
+  end
+  parts[#parts + 1] = ""
+
+  parts[#parts + 1] = string.format([[
+## Your Task
+
+1. **Read the existing documentation page**: %s/%s
+2. **Read the changed source files** listed above to understand what changed
+3. **Read the git diffs** for the changed files: run `git diff HEAD~10..HEAD -- <file>` for each changed file (or use `git log -p` for specific commits)
+4. **Update the documentation page** to reflect the changes:
+   - Add documentation for new features, functions, or behaviors
+   - Update examples that reference changed APIs
+   - Remove documentation for removed features
+   - Update any descriptions that are no longer accurate
+   - Add cross-references to new pages if relevant
+
+## Writing Guidelines
+- Focus on WHAT the software does, from the user's perspective
+- Do NOT explain implementation details, internal architecture, or design decisions
+- Show concrete usage examples with real commands and code
+- Keep the existing page structure — only add/modify sections as needed
+- Preserve the tone and formatting style of the existing page
+- Keep frontmatter intact (update description if page content changed significantly)
+- Preserve the existing link format — do NOT convert between wikilinks and markdown links
+
+## Output
+Write the updated page to: %s/%s
+Do NOT create any other files. Do NOT modify source code.
+]], docs_dir, page_info.path, docs_dir, page_info.path)
+
+  return table.concat(parts, "\n")
+end
+
+--- Run the update pipeline.
+function M._run_update_pipeline(stale_pages, all_pages, adapter, fw, link_style)
+  link_style = link_style or M.detect_link_style(all_pages)
+  local total = #stale_pages
+  local updated = 0
+  local errors = {}
+  local status = require("dwight.agent_status")
+  local docs_dir = adapter.docs_dir()
+
+  status.start_session(string.format("DwightDocs --update: %d pages [%s]", total, fw))
+  status.append(string.format("📄 Updating %d stale documentation pages", total))
+  status.append(string.format("   Link style detected: %s", link_style or "markdown"))
+  status.append("")
+
+  local idx = 0
+
+  local function next_page()
+    idx = idx + 1
+    if idx > total then
+      vim.schedule(function()
+        M._docs_post_generate(
+          vim.tbl_map(function(s) return s.page end, stale_pages),
+          adapter, fw, updated, errors, status)
+      end)
+      return
+    end
+
+    local entry = stale_pages[idx]
+    local page = entry.page
+
+    status.append(string.format("── Page %d/%d ──────────────────────────────────", idx, total))
+    status.append(string.format("  📝 %s — %s (%d changes, %d days stale)",
+      page.path, page.title, entry.change_count, entry.staleness_days or 0))
+
+    local prompt = build_update_prompt(
+      vim.tbl_extend("force", page, { staleness_days = entry.staleness_days }),
+      entry.changes, all_pages, adapter, fw, link_style)
+
+    local agent = require("dwight.agent")
+    agent.run(prompt, {
+      plan = false,
+      _skip_plan = true,
+      on_complete = function(success)
+        vim.schedule(function()
+          if success and vim.fn.filereadable(page.full_path) == 1 then
+            updated = updated + 1
+            status.append(string.format("  ✅ %s updated", page.path))
+          else
+            errors[#errors + 1] = page.path
+            status.append(string.format("  ❌ Failed to update %s", page.path))
+          end
+          status.append("")
+          next_page()
+        end)
+      end,
+    })
+  end
+
+  next_page()
+end
+
+--- :DwightDocs --update entry point.
+function M.update_docs(opts)
+  opts = opts or {}
+  local adapter, fw = M.get_adapter()
+  local docs_dir = adapter.docs_dir()
+
+  if vim.fn.isdirectory(docs_dir) ~= 1 then
+    vim.notify("[dwight] No docs directory found. Run :DwightDocs --agentic first.", vim.log.levels.WARN)
+    return
+  end
+
+  local existing = M.scan_existing_docs(adapter)
+  if #existing == 0 then
+    vim.notify("[dwight] No documentation pages found in " .. docs_dir, vim.log.levels.WARN)
+    return
+  end
+
+  local link_style = M.detect_link_style(existing)
+
+  vim.notify(string.format("[dwight] 📄 Scanning %d pages for staleness…", #existing), vim.log.levels.INFO)
+
+  local stale = M._detect_stale_pages(existing, adapter)
+
+  -- If a specific page was targeted, run directly
+  if opts.target and opts.target ~= "" then
+    local target = opts.target
+    if not target:match("%.md$") then target = target .. ".md" end
+
+    local found = nil
+    for _, entry in ipairs(stale) do
+      if entry.page.path == target or entry.page.path:match(vim.pesc(opts.target)) then
+        found = entry; break
+      end
+    end
+    if not found then
+      -- Check if the page exists but isn't stale
+      local page_exists = false
+      for _, p in ipairs(existing) do
+        if p.path == target or p.path:match(vim.pesc(opts.target)) then
+          page_exists = true; break
+        end
+      end
+      if page_exists then
+        vim.notify("[dwight] ✅ " .. opts.target .. " is up to date.", vim.log.levels.INFO)
+      else
+        vim.notify("[dwight] Page not found: " .. opts.target, vim.log.levels.WARN)
+      end
+      return
+    end
+
+    vim.notify(string.format("[dwight] 📝 Updating %s (%d changes, %d days stale)…",
+      found.page.path, found.change_count, found.staleness_days or 0), vim.log.levels.INFO)
+    M._run_update_pipeline({ found }, existing, adapter, fw, link_style)
+    return
+  end
+
+  if #stale == 0 then
+    vim.notify(string.format(
+      "[dwight] ✅ All %d pages are up to date! No source changes since last docs update.",
+      #existing), vim.log.levels.INFO)
+    return
+  end
+
+  -- Build plan buffer
+  local plan_lines = {}
+  plan_lines[#plan_lines + 1] = "# 📝 DwightDocs — Update Stale Pages"
+  plan_lines[#plan_lines + 1] = ""
+  plan_lines[#plan_lines + 1] = string.format("Framework: %s | Docs: %s/ | Link style: %s", fw, docs_dir, link_style)
+  plan_lines[#plan_lines + 1] = string.format("Scanned: %d pages | Stale: %d", #existing, #stale)
+  plan_lines[#plan_lines + 1] = ""
+  plan_lines[#plan_lines + 1] = "## Pages to Update"
+  plan_lines[#plan_lines + 1] = "Remove lines to skip pages. Each page runs as a focused agent call."
+  plan_lines[#plan_lines + 1] = ""
+
+  for _, entry in ipairs(stale) do
+    local p = entry.page
+    local unique_files = {}
+    local seen = {}
+    for _, c in ipairs(entry.changes) do
+      if not seen[c.file] then seen[c.file] = true; unique_files[#unique_files + 1] = c.file end
+    end
+    local files_str = #unique_files <= 3
+      and table.concat(unique_files, ", ")
+      or string.format("%s (+%d more)", table.concat({unique_files[1], unique_files[2]}, ", "), #unique_files - 2)
+
+    plan_lines[#plan_lines + 1] = string.format("📝 %s | %dd stale | %d changes | %s",
+      p.path, entry.staleness_days or 0, entry.change_count, files_str)
+  end
+
+  plan_lines[#plan_lines + 1] = ""
+  plan_lines[#plan_lines + 1] = "## What Each Agent Will Do"
+  plan_lines[#plan_lines + 1] = "  1. Read the existing documentation page"
+  plan_lines[#plan_lines + 1] = "  2. Read the source files that changed since last update"
+  plan_lines[#plan_lines + 1] = "  3. Read git diffs to understand what changed"
+  plan_lines[#plan_lines + 1] = "  4. Update the page: add new content, fix outdated info, remove stale sections"
+  plan_lines[#plan_lines + 1] = ""
+  plan_lines[#plan_lines + 1] = "────────────────────────────────────────────────────"
+  plan_lines[#plan_lines + 1] = "  y/Enter = Run  |  e = Edit plan  |  q/n = Cancel"
+  plan_lines[#plan_lines + 1] = "────────────────────────────────────────────────────"
+
+  local buf = api.nvim_create_buf(false, true)
+  pcall(function() api.nvim_buf_set_name(buf, "dwight://docs-update-plan") end)
+  api.nvim_buf_set_lines(buf, 0, -1, false, _flatten(plan_lines))
+  vim.bo[buf].buftype = "nofile"
+  vim.bo[buf].bufhidden = "wipe"
+  vim.bo[buf].modifiable = false
+  vim.bo[buf].filetype = "markdown"
+
+  vim.cmd("botright split")
+  local win = api.nvim_get_current_win()
+  api.nvim_win_set_buf(win, buf)
+  api.nvim_win_set_height(win, math.min(#plan_lines + 2, 35))
+
+  local function close() pcall(api.nvim_win_close, win, true) end
+
+  local function parse_plan()
+    local lines = api.nvim_buf_get_lines(buf, 0, -1, false)
+    local selected = {}
+    for _, line in ipairs(lines) do
+      local path = line:match("^📝%s+(%S+%.md)%s+|")
+      if path then
+        for _, entry in ipairs(stale) do
+          if entry.page.path == path then
+            selected[#selected + 1] = entry
+            break
+          end
+        end
+      end
+    end
+    return selected
+  end
+
+  local function run_pipeline()
+    local selected = parse_plan()
+    close()
+    if #selected == 0 then
+      vim.notify("[dwight] No pages selected.", vim.log.levels.WARN)
+      return
+    end
+    vim.notify(string.format("[dwight] 📝 Updating %d stale page(s)…", #selected), vim.log.levels.INFO)
+    M._run_update_pipeline(selected, existing, adapter, fw, link_style)
+  end
+
+  local function enable_edit()
+    vim.bo[buf].modifiable = true
+    vim.notify("[dwight] Plan is editable. Delete lines to skip pages. Press 'y' when done.",
+      vim.log.levels.INFO)
+  end
+
+  local map_opts = { buffer = buf, nowait = true, silent = true }
+  vim.keymap.set("n", "y", run_pipeline, map_opts)
+  vim.keymap.set("n", "<CR>", run_pipeline, map_opts)
+  vim.keymap.set("n", "e", enable_edit, map_opts)
+  vim.keymap.set("n", "q", close, map_opts)
+  vim.keymap.set("n", "n", close, map_opts)
+  vim.keymap.set("n", "<Esc>", close, map_opts)
+end
+
+--------------------------------------------------------------------
+-- SEO Audit: comprehensive page analysis
+--------------------------------------------------------------------
+
+--- Minimum word count for a page to not be considered "thin content".
+local THIN_CONTENT_THRESHOLD = 300
+
+--- Run a full SEO audit on all pages. Returns enriched page list.
+function M._seo_audit(existing_pages, adapter)
+  for _, page in ipairs(existing_pages) do
+    local issues = {}
+
+    -- Meta description
+    if not page.description or page.description == "" then
+      issues[#issues + 1] = "no meta description"
+    elseif #page.description < 50 then
+      issues[#issues + 1] = "short description (" .. #page.description .. " chars)"
+    elseif #page.description > 160 then
+      issues[#issues + 1] = "long description (" .. #page.description .. " chars, truncated in SERP)"
+    end
+
+    -- Title
+    if page.title and #page.title < 10 then
+      issues[#issues + 1] = "short title"
+    elseif page.title and #page.title > 60 then
+      issues[#issues + 1] = "long title (" .. #page.title .. " chars, truncated in SERP)"
+    end
+
+    -- Internal links
+    if page.link_count < 2 then
+      issues[#issues + 1] = page.link_count == 0 and "no internal links" or "1 internal link"
+    end
+
+    -- Thin content
+    if page.word_count < THIN_CONTENT_THRESHOLD then
+      issues[#issues + 1] = string.format("thin content (%d words, min %d)", page.word_count, THIN_CONTENT_THRESHOLD)
+    end
+
+    -- Heading structure
+    if #page.headings == 0 then
+      issues[#issues + 1] = "no headings"
+    else
+      local has_h1 = false
+      for _, h in ipairs(page.headings) do
+        if h.level == 1 then has_h1 = true; break end
+      end
+      if not has_h1 then issues[#issues + 1] = "no H1 heading" end
+    end
+
+    page.seo_issues = issues
+  end
+
+  -- Detect merge candidates: pages with overlapping headings or in the same directory with low word count
+  local merge_groups = {}
+  for i, pa in ipairs(existing_pages) do
+    for j = i + 1, #existing_pages do
+      local pb = existing_pages[j]
+      local score = 0
+
+      -- Same directory → related topics
+      local dir_a = pa.path:match("^(.+)/") or ""
+      local dir_b = pb.path:match("^(.+)/") or ""
+      if dir_a == dir_b and dir_a ~= "" then score = score + 1 end
+
+      -- Both thin → strong merge candidate
+      if pa.word_count < THIN_CONTENT_THRESHOLD and pb.word_count < THIN_CONTENT_THRESHOLD then
+        score = score + 2
+      elseif pa.word_count < THIN_CONTENT_THRESHOLD or pb.word_count < THIN_CONTENT_THRESHOLD then
+        score = score + 1
+      end
+
+      -- Overlapping headings (normalized lowercase comparison)
+      local headings_a = {}
+      for _, h in ipairs(pa.headings) do
+        headings_a[h.text:lower():gsub("[^%w%s]", "")] = true
+      end
+      for _, h in ipairs(pb.headings) do
+        local normalized = h.text:lower():gsub("[^%w%s]", "")
+        if headings_a[normalized] then score = score + 2 end
+      end
+
+      -- Title word overlap
+      local words_a = {}
+      for w in pa.title:lower():gmatch("%w+") do
+        if #w > 3 then words_a[w] = true end  -- skip short words
+      end
+      local overlap = 0
+      for w in pb.title:lower():gmatch("%w+") do
+        if #w > 3 and words_a[w] then overlap = overlap + 1 end
+      end
+      if overlap >= 2 then score = score + 2
+      elseif overlap >= 1 then score = score + 1
+      end
+
+      if score >= 3 then
+        merge_groups[#merge_groups + 1] = {
+          page_a = pa, page_b = pb, score = score,
+          reason = (pa.word_count < THIN_CONTENT_THRESHOLD or pb.word_count < THIN_CONTENT_THRESHOLD)
+            and "thin + related"
+            or "overlapping content",
+        }
+      end
+    end
+  end
+  table.sort(merge_groups, function(a, b) return a.score > b.score end)
+
+  return merge_groups
+end
+
+--------------------------------------------------------------------
+-- :DwightDocs --seo — optimize existing docs for SEO
+--------------------------------------------------------------------
+
+--- Build per-page agent prompt for SEO optimization.
+local function build_seo_prompt(page_info, all_pages, adapter, fw, merge_candidates, link_style)
+  local docs_dir = adapter.docs_dir()
+  local parts = {}
+
+  parts[#parts + 1] = string.format([[
+You are optimizing an existing documentation page for SEO and discoverability: %s
+Title: %s
+Framework: %s
+Output directory: %s/
+Word count: %d words
+Internal links: %d
+]], page_info.path, page_info.title, fw, docs_dir,
+    page_info.word_count or 0, page_info.link_count or 0)
+
+  -- Link format instructions (detected from existing docs)
+  parts[#parts + 1] = link_style_instructions(link_style, all_pages)
+
+  -- SEO issues found
+  if page_info.seo_issues and #page_info.seo_issues > 0 then
+    parts[#parts + 1] = "## SEO Issues Detected"
+    for _, issue in ipairs(page_info.seo_issues) do
+      parts[#parts + 1] = "  ⚠️  " .. issue
+    end
+    parts[#parts + 1] = ""
+  end
+
+  -- Cross-reference map for internal linking
+  parts[#parts + 1] = "## All Documentation Pages (for internal linking)"
+  parts[#parts + 1] = "Internal links are critical for SEO. Link to related pages where natural:"
+  if link_style == "wikilinks" then
+    for _, p in ipairs(all_pages) do
+      if p.path ~= page_info.path then
+        local extra = ""
+        if p.word_count and p.word_count > 0 then
+          extra = string.format(" (%d words)", p.word_count)
+        end
+        parts[#parts + 1] = string.format("  - %s — %s%s → [[%s]]",
+          p.path, p.title or "", extra, (p.title or p.path:gsub("%.md$", "")))
+      end
+    end
+  else
+    for _, p in ipairs(all_pages) do
+      if p.path ~= page_info.path then
+        local link = adapter.link(page_info.path, p.path, p.title or p.path)
+        local extra = ""
+        if p.word_count and p.word_count > 0 then
+          extra = string.format(" (%d words)", p.word_count)
+        end
+        parts[#parts + 1] = string.format("  - %s — %s%s → %s", p.path, p.title or "", extra, link)
+      end
+    end
+  end
+  parts[#parts + 1] = ""
+
+  -- Merge candidates
+  if merge_candidates and #merge_candidates > 0 then
+    parts[#parts + 1] = "## Merge Candidates"
+    parts[#parts + 1] = "These pages overlap with this one and could be absorbed into it:"
+    for _, mc in ipairs(merge_candidates) do
+      local other = mc.page_a.path == page_info.path and mc.page_b or mc.page_a
+      parts[#parts + 1] = string.format("  - %s — \"%s\" (%d words) — reason: %s",
+        other.path, other.title, other.word_count or 0, mc.reason)
+      -- Show headings of the merge candidate
+      if other.headings and #other.headings > 0 then
+        local heading_strs = {}
+        for _, h in ipairs(other.headings) do
+          heading_strs[#heading_strs + 1] = string.rep("#", h.level) .. " " .. h.text
+        end
+        parts[#parts + 1] = "    Headings: " .. table.concat(heading_strs, " | ")
+      end
+    end
+    parts[#parts + 1] = ""
+    parts[#parts + 1] = [[
+If a merge candidate is truly redundant with this page:
+  1. READ the candidate page to get its unique content
+  2. INCORPORATE any useful content from it into this page
+  3. DELETE the candidate page (remove the file)
+  4. Any other pages that linked to the deleted page should be updated
+     to point to this page instead — but only update THIS page's links for now.
+Only merge if it genuinely makes sense. Don't merge unrelated pages.]]
+    parts[#parts + 1] = ""
+  end
+
+  -- Thin content specific instructions
+  local is_thin = page_info.word_count and page_info.word_count < THIN_CONTENT_THRESHOLD
+  if is_thin then
+    parts[#parts + 1] = string.format([[
+## ⚠️  Thin Content — This Page Needs Expansion
+
+This page has only %d words (minimum recommended: %d).
+Thin pages hurt SEO ranking and provide poor user experience.
+
+To expand this page:
+1. Read the SOURCE CODE for features this page documents
+2. Add practical, real-world examples with code snippets
+3. Add a "Common Use Cases" or "Examples" section
+4. Expand any terse descriptions into full explanations
+5. Add FAQ-style subsections for questions users commonly ask
+6. If this page covers a feature, show complete usage workflows
+
+Do NOT pad with filler. Every sentence must add real value.
+Read the actual source files to find content worth documenting.
+]], page_info.word_count, THIN_CONTENT_THRESHOLD)
+  end
+
+  -- Current description status
+  if page_info.description then
+    parts[#parts + 1] = "Current meta description: " .. page_info.description
+  else
+    parts[#parts + 1] = "⚠️  No meta description found — this is critical for SEO."
+  end
+  parts[#parts + 1] = ""
+
+  parts[#parts + 1] = string.format([[
+## Your Task
+
+1. **Read the existing page**: %s/%s%s
+2. **Optimize it for search engines** while preserving accuracy and readability:
+
+### Frontmatter
+- Ensure `title:` is descriptive, includes key terms users would search for (50-60 chars)
+- Ensure `description:` is a compelling summary for search results (120-155 chars)
+- The description should answer "what does this page help me do?"
+
+### Content Structure
+- The H1 should match the title but can be slightly different (more human-readable)
+- Use H2/H3 headings that contain searchable phrases (what users actually type)
+- Every heading should describe WHAT something does, not HOW it works internally
+- First paragraph should be a clear, keyword-rich summary of the page topic
+- Bad: "Architecture of the Authentication Module"
+- Good: "User Authentication — Login, Registration, and Session Management"
+
+### Internal Linking
+- Add natural links to related pages throughout the content
+- Use descriptive anchor text (not "click here" or "see docs")
+- Every page should link to at least 2-3 other pages
+- PRESERVE the existing link format used in these docs (see Link Format section above)
+]], docs_dir, page_info.path,
+    is_thin and "\n3. **Read source code** to find real content to expand this page with" or "")
+
+  -- Add link-format-specific examples
+  if link_style == "wikilinks" then
+    parts[#parts + 1] = [==[
+- Good: "Once authenticated, users can [[API Key Management|manage their API keys]] from the dashboard."
+- Bad: "For more info, see [[API Keys|here]]."
+- WRONG: "users can [manage their API keys](./api-keys)" — do NOT use markdown links
+]==]
+  else
+    parts[#parts + 1] = [[
+- Good: "Once authenticated, users can [manage their API keys](./api-keys) from the dashboard."
+- Bad: "For more info, see [here](./api-keys)."
+]]
+  end
+
+  parts[#parts + 1] = string.format([[
+### Content Quality
+- Lead with WHAT the feature does from the user's perspective
+- Remove implementation details, internal architecture explanations, and developer-facing jargon
+- Add practical examples that show real usage
+- Ensure code examples are complete and copy-pasteable
+- Remove filler phrases: "In this section we will discuss…", "As mentioned above…"
+- Every sentence should add value for the reader
+
+### Keywords
+- Use natural variations of key terms throughout (don't keyword-stuff)
+- Include the primary topic in the first 100 words
+- Use related terms that users might search for
+
+## Writing Guidelines
+- Focus on WHAT the software does from the user's perspective
+- Write for users searching Google/docs for how to accomplish a task
+- Do NOT explain internal implementation, design patterns, or architecture
+- Keep the same overall page structure — optimize within it
+- Preserve all existing information that is accurate and user-relevant
+- Preserve the existing link format — do NOT convert between wikilinks and markdown links
+- Keep frontmatter format appropriate for %s framework
+
+## Output
+Write the optimized page to: %s/%s
+]], fw, docs_dir, page_info.path)
+
+  if merge_candidates and #merge_candidates > 0 then
+    parts[#parts + 1] = "If you merged a candidate page, delete that file too."
+  end
+  parts[#parts + 1] = "Do NOT create any new files (other than this page). Do NOT modify source code."
+
+  return table.concat(parts, "\n")
+end
+
+--- Run the SEO optimization pipeline.
+function M._run_seo_pipeline(pages, all_pages, adapter, fw, merge_groups, link_style)
+  link_style = link_style or M.detect_link_style(all_pages)
+  local total = #pages
+  local optimized = 0
+  local errors = {}
+  local status = require("dwight.agent_status")
+  local docs_dir = adapter.docs_dir()
+
+  status.start_session(string.format("DwightDocs --seo: %d pages [%s]", total, fw))
+  status.append(string.format("🔍 Optimizing %d documentation pages for SEO", total))
+  status.append(string.format("   Link style detected: %s", link_style or "markdown"))
+  status.append("")
+
+  local idx = 0
+
+  local function next_page()
+    idx = idx + 1
+    if idx > total then
+      vim.schedule(function()
+        M._docs_post_generate(pages, adapter, fw, optimized, errors, status)
+      end)
+      return
+    end
+
+    local page = pages[idx]
+    local is_thin = page.word_count and page.word_count < THIN_CONTENT_THRESHOLD
+
+    status.append(string.format("── Page %d/%d ──────────────────────────────────", idx, total))
+    local extra = is_thin
+      and string.format(" ⚠️ thin (%d words)", page.word_count)
+      or string.format(" (%d words)", page.word_count or 0)
+    status.append(string.format("  🔍 %s — %s%s", page.path, page.title, extra))
+
+    -- Find merge candidates relevant to this page
+    local page_merges = {}
+    if merge_groups then
+      for _, mg in ipairs(merge_groups) do
+        if mg.page_a.path == page.path or mg.page_b.path == page.path then
+          page_merges[#page_merges + 1] = mg
+        end
+      end
+    end
+    if #page_merges > 0 then
+      for _, mg in ipairs(page_merges) do
+        local other = mg.page_a.path == page.path and mg.page_b or mg.page_a
+        status.append(string.format("    → merge candidate: %s (%s)", other.path, mg.reason))
+      end
+    end
+
+    local prompt = build_seo_prompt(page, all_pages, adapter, fw, page_merges, link_style)
+
+    local agent = require("dwight.agent")
+    agent.run(prompt, {
+      plan = false,
+      _skip_plan = true,
+      on_complete = function(success)
+        vim.schedule(function()
+          if success and vim.fn.filereadable(page.full_path) == 1 then
+            optimized = optimized + 1
+            status.append(string.format("  ✅ %s optimized", page.path))
+          else
+            errors[#errors + 1] = page.path
+            status.append(string.format("  ❌ Failed to optimize %s", page.path))
+          end
+          status.append("")
+          next_page()
+        end)
+      end,
+    })
+  end
+
+  next_page()
+end
+
+--- :DwightDocs --seo [page] entry point.
+function M.seo_optimize(opts)
+  opts = opts or {}
+  local adapter, fw = M.get_adapter()
+  local docs_dir = adapter.docs_dir()
+
+  if vim.fn.isdirectory(docs_dir) ~= 1 then
+    vim.notify("[dwight] No docs directory found.", vim.log.levels.WARN)
+    return
+  end
+
+  local existing = M.scan_existing_docs(adapter)
+  if #existing == 0 then
+    vim.notify("[dwight] No documentation pages found in " .. docs_dir, vim.log.levels.WARN)
+    return
+  end
+
+  -- Run full SEO audit
+  local merge_groups = M._seo_audit(existing, adapter)
+  local link_style = M.detect_link_style(existing)
+
+  -- If a specific page was targeted, run directly (no plan buffer)
+  if opts.target and opts.target ~= "" then
+    local target = opts.target
+    -- Normalize: allow "features/auth" or "features/auth.md"
+    if not target:match("%.md$") then target = target .. ".md" end
+
+    local found = nil
+    for _, p in ipairs(existing) do
+      if p.path == target or p.path:match(vim.pesc(opts.target)) then
+        found = p; break
+      end
+    end
+    if not found then
+      vim.notify("[dwight] Page not found: " .. opts.target, vim.log.levels.WARN)
+      return
+    end
+
+    local issue_str = found.seo_issues and #found.seo_issues > 0
+      and ": " .. table.concat(found.seo_issues, ", ")
+      or " (no issues detected, optimizing anyway)"
+    vim.notify(string.format("[dwight] 🔍 SEO optimizing %s%s", found.path, issue_str),
+      vim.log.levels.INFO)
+
+    M._run_seo_pipeline({ found }, existing, adapter, fw, merge_groups, link_style)
+    return
+  end
+
+  -- Count issues
+  local issue_count = 0
+  local thin_count = 0
+  for _, p in ipairs(existing) do
+    if p.seo_issues and #p.seo_issues > 0 then issue_count = issue_count + 1 end
+    if p.word_count < THIN_CONTENT_THRESHOLD then thin_count = thin_count + 1 end
+  end
+
+  -- Build plan buffer
+  local plan_lines = {}
+  plan_lines[#plan_lines + 1] = "# 🔍 DwightDocs — SEO Optimization"
+  plan_lines[#plan_lines + 1] = ""
+  plan_lines[#plan_lines + 1] = string.format("Framework: %s | Docs: %s/ | Link style: %s", fw, docs_dir, link_style)
+  plan_lines[#plan_lines + 1] = string.format(
+    "Total pages: %d | Issues: %d | Thin content: %d | Merge candidates: %d",
+    #existing, issue_count, thin_count, #merge_groups)
+  plan_lines[#plan_lines + 1] = ""
+
+  -- Merge candidates section
+  if #merge_groups > 0 then
+    plan_lines[#plan_lines + 1] = "## Merge Candidates"
+    plan_lines[#plan_lines + 1] = "These page pairs overlap and the agent may merge them:"
+    for _, mg in ipairs(merge_groups) do
+      plan_lines[#plan_lines + 1] = string.format("  %s ↔ %s — %s (score %d)",
+        mg.page_a.path, mg.page_b.path, mg.reason, mg.score)
+    end
+    plan_lines[#plan_lines + 1] = ""
+  end
+
+  plan_lines[#plan_lines + 1] = "## Pages to Optimize"
+  plan_lines[#plan_lines + 1] = "Remove lines to skip pages. Each page runs as a focused agent call."
+  plan_lines[#plan_lines + 1] = ""
+
+  -- Sort: pages with issues first
+  local sorted = vim.deepcopy(existing)
+  table.sort(sorted, function(a, b)
+    local a_issues = a.seo_issues and #a.seo_issues or 0
+    local b_issues = b.seo_issues and #b.seo_issues or 0
+    if a_issues ~= b_issues then return a_issues > b_issues end
+    return (a.word_count or 0) < (b.word_count or 0)
+  end)
+
+  for _, page in ipairs(sorted) do
+    local flags = {}
+    if page.word_count < THIN_CONTENT_THRESHOLD then
+      flags[#flags + 1] = string.format("⚠️ thin(%dw)", page.word_count)
+    end
+    if not page.description or page.description == "" then
+      flags[#flags + 1] = "⚠️ no desc"
+    end
+    if page.link_count < 2 then
+      flags[#flags + 1] = "⚠️ links:" .. page.link_count
+    end
+    -- Check if this page is a merge candidate
+    for _, mg in ipairs(merge_groups) do
+      if mg.page_a.path == page.path or mg.page_b.path == page.path then
+        local other = mg.page_a.path == page.path and mg.page_b or mg.page_a
+        flags[#flags + 1] = "↔ " .. other.path
+        break  -- show only first merge match
+      end
+    end
+
+    local flag_str = #flags > 0 and " " .. table.concat(flags, " | ") or " ✓"
+    plan_lines[#plan_lines + 1] = string.format("🔍 %s | %dw | %s%s",
+      page.path, page.word_count, page.title, flag_str)
+  end
+
+  plan_lines[#plan_lines + 1] = ""
+  plan_lines[#plan_lines + 1] = "## What Each Agent Will Do"
+  plan_lines[#plan_lines + 1] = "  1. Read the existing page"
+  plan_lines[#plan_lines + 1] = "  2. Optimize title and meta description for search"
+  plan_lines[#plan_lines + 1] = "  3. Improve headings to match user search intent"
+  plan_lines[#plan_lines + 1] = "  4. Add internal links to related pages"
+  plan_lines[#plan_lines + 1] = "  5. Tighten content: lead with WHAT, not HOW or WHY"
+  if thin_count > 0 then
+    plan_lines[#plan_lines + 1] = "  6. Expand thin pages by reading source code for real content"
+  end
+  if #merge_groups > 0 then
+    plan_lines[#plan_lines + 1] = string.format(
+      "  %d. Merge overlapping pages where it makes sense",
+      thin_count > 0 and 7 or 6)
+  end
+  plan_lines[#plan_lines + 1] = ""
+  plan_lines[#plan_lines + 1] = "────────────────────────────────────────────────────"
+  plan_lines[#plan_lines + 1] = "  y/Enter = Run  |  e = Edit plan  |  q/n = Cancel"
+  plan_lines[#plan_lines + 1] = "────────────────────────────────────────────────────"
+
+  local buf = api.nvim_create_buf(false, true)
+  pcall(function() api.nvim_buf_set_name(buf, "dwight://docs-seo-plan") end)
+  api.nvim_buf_set_lines(buf, 0, -1, false, _flatten(plan_lines))
+  vim.bo[buf].buftype = "nofile"
+  vim.bo[buf].bufhidden = "wipe"
+  vim.bo[buf].modifiable = false
+  vim.bo[buf].filetype = "markdown"
+
+  vim.cmd("botright split")
+  local win = api.nvim_get_current_win()
+  api.nvim_win_set_buf(win, buf)
+  api.nvim_win_set_height(win, math.min(#plan_lines + 2, 35))
+
+  local function close() pcall(api.nvim_win_close, win, true) end
+
+  local function parse_plan()
+    local lines = api.nvim_buf_get_lines(buf, 0, -1, false)
+    local selected = {}
+    for _, line in ipairs(lines) do
+      local path = line:match("^🔍%s+(%S+%.md)%s+|")
+      if path then
+        for _, p in ipairs(sorted) do
+          if p.path == path then
+            selected[#selected + 1] = p
+            break
+          end
+        end
+      end
+    end
+    return selected
+  end
+
+  local function run_pipeline()
+    local selected = parse_plan()
+    close()
+    if #selected == 0 then
+      vim.notify("[dwight] No pages selected.", vim.log.levels.WARN)
+      return
+    end
+    vim.notify(string.format("[dwight] 🔍 Optimizing %d page(s) for SEO…", #selected), vim.log.levels.INFO)
+    M._run_seo_pipeline(selected, existing, adapter, fw, merge_groups, link_style)
+  end
+
+  local function enable_edit()
+    vim.bo[buf].modifiable = true
+    vim.notify("[dwight] Plan is editable. Delete lines to skip pages. Press 'y' when done.",
+      vim.log.levels.INFO)
+  end
+
   local map_opts = { buffer = buf, nowait = true, silent = true }
   vim.keymap.set("n", "y", run_pipeline, map_opts)
   vim.keymap.set("n", "<CR>", run_pipeline, map_opts)
