@@ -15,7 +15,7 @@
           lua
           lua-language-server
           stylua
-          mdformat
+          # mdformat
         ];
         shellHook = ''
           echo "Welcome to dwight.nvim"

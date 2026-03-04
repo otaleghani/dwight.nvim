@@ -2,6 +2,7 @@
 title: Multi-Repo Workspace
 description: Work across multiple repositories as a unified workspace with cross-repo features and unified issue tracking.
 ---
+
 # Multi-Repo Workspace
 
 Dwight can manage multiple repositories as a single workspace. Features can span repos, agents have cross-repo context, and issues are tracked across the entire workspace.

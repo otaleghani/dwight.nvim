@@ -1,14 +1,16 @@
 ---
-title: CI/CD & GitHub
+title: CI/CD & GitHub 
 description: Auto-fix CI failures, generate pull requests, and manage issues from Neovim.
 ---
+
 # CI/CD & GitHub
 
 Dwight integrates with your CI pipeline and GitHub workflow.
 
----
+______________________________________________________________________
 
 ## CI Auto-Fix
+
 When your CI pipeline fails, Dwight can diagnose and fix the issue:
 
 ```vim
@@ -18,7 +20,7 @@ When your CI pipeline fails, Dwight can diagnose and fix the issue:
 
 The agent reads the failure output, identifies the root cause, applies a fix, and verifies it passes locally before committing.
 
----
+______________________________________________________________________
 
 ## Git Operations
 
@@ -31,7 +33,9 @@ The agent reads the failure output, identifies the root cause, applies a fix, an
 ```
 
 ### Checkpoint Commits
+
 During `:DwightAuto`, each sub-task creates a checkpoint commit:
+
 ```
 dwight: task 1/8 — HTTP server foundation
 dwight: task 2/8 — Template infrastructure
@@ -40,12 +44,14 @@ dwight: task 2/8 — Template infrastructure
 
 Use `:DwightSquash` to collapse these into a single commit before merging.
 
----
+______________________________________________________________________
 
 ## GitHub Integration
+
 Requires [GitHub CLI](https://cli.github.com/) (`gh`) to be installed and authenticated.
 
 ### Pull Requests
+
 ```vim
 :DwightPR                    " Create a PR from current branch
 :DwightPR "Add user auth"    " Create with a specific title
@@ -54,6 +60,7 @@ Requires [GitHub CLI](https://cli.github.com/) (`gh`) to be installed and authen
 ```
 
 ### Issues
+
 ```vim
 :DwightIssue 15              " Read issue #15 and start working on it
 :DwightNewIssue              " Create a new issue
@@ -61,9 +68,10 @@ Requires [GitHub CLI](https://cli.github.com/) (`gh`) to be installed and authen
 
 When working on an issue, Dwight includes the issue description and comments in the agent's context.
 
----
+______________________________________________________________________
 
 ## TDD Mode
+
 A test-driven development loop:
 
 ```vim
@@ -72,10 +80,11 @@ A test-driven development loop:
 ```
 
 The loop:
+
 1. Agent writes a failing test based on your description
-2. Runs the test to confirm it fails
-3. Agent implements the minimum code to pass
-4. Runs the test to confirm it passes
-5. Optionally refactors
+1. Runs the test to confirm it fails
+1. Agent implements the minimum code to pass
+1. Runs the test to confirm it passes
+1. Optionally refactors
 
 This continues until the feature is complete or you stop it.

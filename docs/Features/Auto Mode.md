@@ -1,12 +1,13 @@
 ---
-title: Auto Mode
+title: Auto Mode 
 description: Multi-step task planning and autonomous execution with verification gates and git checkpoints.
 ---
+
 # Auto Mode
 
 Auto Mode is Dwight's most powerful feature. Give it a high-level task description and it will plan, execute, verify, and checkpoint the work autonomously.
 
----
+______________________________________________________________________
 
 ## How It Works
 
@@ -15,9 +16,11 @@ Auto Mode is Dwight's most powerful feature. Give it a high-level task descripti
 ```
 
 ### 1. Planning
+
 Dwight analyzes your project context (features, file structure, existing code) and breaks the task into 4-8 sub-tasks. Each sub-task is scoped, ordered by dependency, and small enough for an agent to complete in one session.
 
 Example plan:
+
 ```
 📋 8 sub-tasks:
   1. HTTP server foundation and routing
@@ -31,27 +34,35 @@ Example plan:
 ```
 
 ### 2. Baseline Test Snapshot
+
 Before starting, Dwight runs your test suite and records any pre-existing failures. These won't count against verification gates later.
 
 ### 3. Sub-Task Execution
+
 Each sub-task runs through an agent session with full tool use (read, write, edit, run commands, search). The agent has access to project context, skills, and lessons from past sessions.
 
 ### 4. Verification Gates
+
 After each sub-task, Dwight runs the detected test command (e.g., `go test ./...`, `pytest`, `npm test`). If tests pass, it proceeds. If they fail, the agent gets one retry with the error output as context.
 
 ### 5. Git Checkpoints
+
 After each passing verification gate, Dwight creates a git commit:
+
 ```
 dwight: task 3/8 — Task list view page
 ```
+
 This means you can always roll back to any intermediate state.
 
 ### 6. Learning
+
 After the full session completes, Dwight extracts lessons from what happened — patterns that worked, errors that occurred, and fixes that were applied. These lessons are used in future sessions.
 
----
+______________________________________________________________________
 
 ## Session Control
+
 While Auto is running, you have full control:
 
 ```vim
@@ -65,12 +76,13 @@ While Auto is running, you have full control:
 :DwightAutoStatus     " Show session progress
 ```
 
----
+______________________________________________________________________
 
 ## Resumable Sessions
+
 If a sub-task fails even after retry, the session pauses. The state is saved to `.dwight/auto/current.json`. When you fix the issue manually, run `:DwightAutoResume` to continue from where it stopped. Previously completed tasks are marked with ✅ and skipped.
 
----
+______________________________________________________________________
 
 ## Tips
 
@@ -81,3 +93,16 @@ If a sub-task fails even after retry, the session pauses. The state is saved to 
 **Check your test command.** Verification gates depend on your test command being correct. Run `:checkhealth dwight` to see what command Dwight detected. If it's wrong, configure it via `languages` in setup.
 
 **Review with replay.** After a session, `:DwightReplay latest` lets you step through every tool call and see exactly what the agent did.
+
+______________________________________________________________________
+
+## Visual range support
+
+Both `DwightAuto` and `DwightAgent` now accept `range = true`, so you can visually select text in **any buffer** and run:
+
+```vim
+:'DwightAgent
+:'DwightAuto
+```
+
+The selected text becomes the prompt. Uses `o.line1`/`o.line2` from the command handler (not `'<`/`'>` marks, which can be stale). If text args are also provided, they take precedence over the selection.
