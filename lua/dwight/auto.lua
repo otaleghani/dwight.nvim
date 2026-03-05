@@ -1876,41 +1876,46 @@ function M._run_loop(tasks, start_from, master_request, master_started, status, 
 
 			status.stop_spin()
 			status.append(string.rep("═", 40))
+			status.append("")
 			status.append(string.format("ALL %d TASKS COMPLETE in %ds", total, total_duration))
-
-			-- Per-task cost breakdown
-			local tokens = status.session_tokens and status.session_tokens() or { input = 0, output = 0, total = 0 }
 			status.append("")
 			status.append("Usage:")
+			local tokens = status.session_tokens and status.session_tokens() or { input = 0, output = 0, total = 0 }
+			local fmt_tok = function(n)
+				if n >= 1000000 then
+					return string.format("%.1fM", n / 1000000)
+				end
+				if n >= 1000 then
+					return string.format("%.1fk", n / 1000)
+				end
+				return tostring(n)
+			end
 			for _, s in ipairs(completed_sessions) do
 				local task_cost = s.cost or 0
 				local cost_str = task_cost > 0 and string.format("$%.2f", task_cost) or "—"
 				local icon = s.had_error and "x" or "✓"
-				status.append(string.format("  %s Task %d: %s (%s)", icon, s.task_num or 0, s.title or "?", cost_str))
-			end
-			status.append("  ──────────────────────")
-			if total_cost > 0 then
-				status.append(string.format("  Cost:   ~$%.2f", total_cost))
-			end
-			if tokens.total > 0 then
-				local fmt_tok = function(n)
-					if n >= 1000000 then
-						return string.format("%.1fM", n / 1000000)
-					end
-					if n >= 1000 then
-						return string.format("%.1fk", n / 1000)
-					end
-					return tostring(n)
-				end
+				local title = s.title or "?"
 				status.append(
-					string.format(
-						"  Tokens: %s in / %s out (%s total)",
-						fmt_tok(tokens.input),
-						fmt_tok(tokens.output),
-						fmt_tok(tokens.total)
-					)
+					string.format("  %s %-30s %s", icon, "Task " .. (s.task_num or 0) .. ": " .. title, cost_str)
 				)
 			end
+			status.append("")
+			status.append("  " .. string.rep("─", 37))
+			local summary_parts = {}
+			if total_cost > 0 then
+				summary_parts[#summary_parts + 1] = string.format("~$%.2f", total_cost)
+			end
+			if tokens.total > 0 then
+				summary_parts[#summary_parts + 1] = fmt_tok(tokens.input)
+					.. " in / "
+					.. fmt_tok(tokens.output)
+					.. " out"
+			end
+			if #summary_parts > 0 then
+				status.append("  Total: " .. table.concat(summary_parts, " | "))
+			end
+			status.append("")
+			status.append(string.rep("═", 40))
 
 			status.end_session(true, total_duration)
 
@@ -2039,39 +2044,53 @@ function M._run_loop(tasks, start_from, master_request, master_started, status, 
 
 						local tokens = status.session_tokens and status.session_tokens()
 							or { input = 0, output = 0, total = 0 }
+						status.append(string.rep("═", 40))
+						status.append("")
+						status.append(string.format("FAILED at task %d/%d in %ds", idx, total, total_duration))
 						status.append("")
 						status.append("Usage:")
+						local fmt_tok = function(n)
+							if n >= 1000000 then
+								return string.format("%.1fM", n / 1000000)
+							end
+							if n >= 1000 then
+								return string.format("%.1fk", n / 1000)
+							end
+							return tostring(n)
+						end
 						for _, s in ipairs(completed_sessions) do
 							local task_cost = s.cost or 0
 							local cost_str = task_cost > 0 and string.format("$%.2f", task_cost) or "—"
 							local icon = s.had_error and "x" or "✓"
-							status.append(
-								string.format("  %s Task %d: %s (%s)", icon, s.task_num or 0, s.title or "?", cost_str)
-							)
-						end
-						status.append("  ──────────────────────")
-						if total_cost > 0 then
-							status.append(string.format("  Cost:   ~$%.2f", total_cost))
-						end
-						if tokens.total > 0 then
-							local fmt_tok = function(n)
-								if n >= 1000000 then
-									return string.format("%.1fM", n / 1000000)
-								end
-								if n >= 1000 then
-									return string.format("%.1fk", n / 1000)
-								end
-								return tostring(n)
-							end
+							local title = s.title or "?"
 							status.append(
 								string.format(
-									"  Tokens: %s in / %s out (%s total)",
-									fmt_tok(tokens.input),
-									fmt_tok(tokens.output),
-									fmt_tok(tokens.total)
+									"  %s %-30s %s",
+									icon,
+									"Task " .. (s.task_num or 0) .. ": " .. title,
+									cost_str
 								)
 							)
 						end
+						-- Add the failed task entry
+						status.append(string.format("  x %-30s FAILED", "Task " .. idx .. ": " .. (task.title or "?")))
+						status.append("")
+						status.append("  " .. string.rep("─", 37))
+						local summary_parts = {}
+						if total_cost > 0 then
+							summary_parts[#summary_parts + 1] = string.format("~$%.2f", total_cost)
+						end
+						if tokens.total > 0 then
+							summary_parts[#summary_parts + 1] = fmt_tok(tokens.input)
+								.. " in / "
+								.. fmt_tok(tokens.output)
+								.. " out"
+						end
+						if #summary_parts > 0 then
+							status.append("  Total: " .. table.concat(summary_parts, " | "))
+						end
+						status.append("")
+						status.append(string.rep("═", 40))
 
 						status.stop_spin()
 						status.end_session(false, total_duration)
