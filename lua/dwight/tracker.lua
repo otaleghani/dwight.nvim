@@ -30,21 +30,27 @@ local function tracker_path()
   return require("dwight.project").tracker_file()
 end
 
+local function default_lifetime()
+  return { invocations = 0, chars_sent = 0, chars_received = 0, cost = 0, by_mode = {}, by_model = {}, by_status = {} }
+end
+
 local function read_data()
   local path = tracker_path()
   local f = io.open(path, "r")
   if not f then
-    return { lifetime = { invocations = 0, chars_sent = 0, chars_received = 0, cost = 0, by_mode = {}, by_model = {} } }
+    return { lifetime = default_lifetime() }
   end
   local raw = f:read("*a"); f:close()
   local ok, data = pcall(vim.fn.json_decode, raw)
   if ok and data then
+    local defaults = default_lifetime()
     data.lifetime = data.lifetime or {}
-    data.lifetime.cost = data.lifetime.cost or 0
-    data.lifetime.by_model = data.lifetime.by_model or {}
+    for k, v in pairs(defaults) do
+      if data.lifetime[k] == nil then data.lifetime[k] = v end
+    end
     return data
   end
-  return { lifetime = { invocations = 0, chars_sent = 0, chars_received = 0, cost = 0, by_mode = {}, by_model = {} } }
+  return { lifetime = default_lifetime() }
 end
 
 local function write_data(data)
@@ -392,7 +398,7 @@ function M.show()
   end
 
   -- By mode
-  if not vim.tbl_isempty(lt.by_mode) then
+  if lt.by_mode and not vim.tbl_isempty(lt.by_mode) then
     lines[#lines + 1] = "── By Mode ─────────────────────────────────────"
     local sorted = {}
     for k, v in pairs(lt.by_mode) do sorted[#sorted + 1] = { k, v } end
