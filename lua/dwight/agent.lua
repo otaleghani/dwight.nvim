@@ -366,15 +366,12 @@ function M._append_lessons(new_lessons)
 	if added > 0 or #new_lessons > 0 then
 		M._save_lessons(all)
 		if added > 0 then
-			vim.notify(
-				string.format("[dwight] 📚 Learned %d lesson(s) from this session.", added),
-				vim.log.levels.INFO
-			)
+			vim.notify(string.format("[dwight] Learned %d lesson(s) from this session.", added), vim.log.levels.INFO)
 		end
 		local merged = #new_lessons - added
 		if merged > 0 then
 			vim.notify(
-				string.format("[dwight] 📚 Merged %d lesson(s) with existing knowledge.", merged),
+				string.format("[dwight] Merged %d lesson(s) with existing knowledge.", merged),
 				vim.log.levels.INFO
 			)
 		end
@@ -699,7 +696,7 @@ function M._show_plan_buffer(request, plan, on_action)
 		"║  DwightAgent Plan Preview                                   ║",
 		"╚══════════════════════════════════════════════════════════════╝",
 		"",
-		"  📋 Task: " .. request:sub(1, 80),
+		"  Task: " .. request:sub(1, 80),
 		"",
 	}
 
@@ -743,14 +740,14 @@ function M._show_plan_buffer(request, plan, on_action)
 	if plan.risks and #plan.risks > 0 then
 		lines[#lines + 1] = "  ─── Risks ───"
 		for _, r in ipairs(plan.risks) do
-			lines[#lines + 1] = "  ⚠️  " .. r
+			lines[#lines + 1] = "  WARN: " .. r
 		end
 		lines[#lines + 1] = ""
 	end
 
 	-- Recommend Auto?
 	if plan.recommend_auto then
-		lines[#lines + 1] = "  💡 This task looks complex — DwightAuto (multi-task) may work better."
+		lines[#lines + 1] = "  This task looks complex — DwightAuto (multi-task) may work better."
 		lines[#lines + 1] = ""
 	end
 
@@ -880,12 +877,12 @@ function M.run(request, opts)
 
 	-- Plan mode: generate plan first, then show preview
 	if plan_mode then
-		vim.notify("[dwight] 📋 Generating execution plan…", vim.log.levels.INFO)
+		vim.notify("[dwight] Generating execution plan…", vim.log.levels.INFO)
 
 		M._generate_plan(request, function(plan, _raw)
 			if not plan then
 				-- Plan generation failed — fall back to direct execution
-				vim.notify("[dwight] ⚠️  Plan generation failed — launching agent directly.", vim.log.levels.WARN)
+				vim.notify("[dwight] Plan generation failed — launching agent directly.", vim.log.levels.WARN)
 				M._run_agentic(request, opts)
 				return
 			end
@@ -949,9 +946,9 @@ function M._run_agentic(request, opts)
 
 	status_mod.start_session(request)
 	if opts._plan_context then
-		status_mod.append("🤖 Running with pre-approved plan")
+		status_mod.append("Running with pre-approved plan")
 	else
-		status_mod.append("🤖 Running in agentic mode (tool-use loop)")
+		status_mod.append("Running in agentic mode (tool-use loop)")
 	end
 
 	-- Pre-work git safety: warn about dirty state
@@ -962,7 +959,7 @@ function M._run_agentic(request, opts)
 			for _ in status_out:gmatch("[^\n]+") do
 				count = count + 1
 			end
-			status_mod.append(string.format("⚠️  %d uncommitted change(s) in working tree", count))
+			status_mod.append(string.format("WARN: %d uncommitted change(s) in working tree", count))
 			status_mod.append("   Tip: commit or stash first, or use :DwightGit stash")
 		end
 	end)
@@ -1068,7 +1065,7 @@ function M._run_agentic(request, opts)
 				tool_parts[#tool_parts + 1] = tool_counts.search .. " searches"
 			end
 			if #tool_parts > 0 then
-				status_mod.append("📊 Tool usage: " .. table.concat(tool_parts, ", "))
+				status_mod.append("Tool usage: " .. table.concat(tool_parts, ", "))
 			end
 
 			status_mod.end_session(success, duration)
@@ -1110,16 +1107,16 @@ function M._run_agentic(request, opts)
 					function(lessons_out)
 						if lessons_out and #lessons_out > 0 then
 							M._append_lessons(lessons_out)
-							status_mod.append(string.format("📚 Learned %d lesson(s)", #lessons_out))
+							status_mod.append(string.format("Learned %d lesson(s)", #lessons_out))
 						end
 					end
 				)
 			end)
 
 			if success then
-				vim.notify(string.format("[dwight] 🤖 Agentic: done in %ds!", duration), vim.log.levels.INFO)
+				vim.notify(string.format("[dwight] Agentic: done in %ds!", duration), vim.log.levels.INFO)
 			else
-				vim.notify("[dwight] 🤖 Agentic: execution had errors.", vim.log.levels.WARN)
+				vim.notify("[dwight] Agentic: execution had errors.", vim.log.levels.WARN)
 			end
 
 			-- Fire external on_complete callback (used by github.lua for PR flow)
@@ -1173,10 +1170,10 @@ function M._show_post_diff(status_mod, pre_head)
 
 	if using_worktree then
 		status_mod.append("")
-		status_mod.append("📋 Uncommitted changes:")
+		status_mod.append("Uncommitted changes:")
 	else
 		status_mod.append("")
-		status_mod.append("📋 Changes since session start:")
+		status_mod.append("Changes since session start:")
 	end
 
 	-- Show compact diff stat (tracked changes)
@@ -1266,8 +1263,8 @@ function M._show_post_diff(status_mod, pre_head)
 		vim.fn.setqflist({}, "a", { title = "Dwight: " .. #qf_items .. " file(s) changed" })
 
 		status_mod.append("")
-		status_mod.append(string.format("📋 Quickfix: %d file(s) — :copen to review", #qf_items))
-		status_mod.append("💡 :DwightDiffReview — full unified diff in a tab")
+		status_mod.append(string.format("Quickfix: %d file(s) — :copen to review", #qf_items))
+		status_mod.append(":DwightDiffReview — full unified diff in a tab")
 
 		-- Auto-open quickfix (non-blocking)
 		vim.defer_fn(function()
@@ -1318,7 +1315,7 @@ function M.diff_review()
 		pcall(vim.api.nvim_buf_delete, buf, { force = true })
 	end, { buffer = buf, desc = "Close diff review" })
 
-	vim.notify("[dwight] 📋 Diff review open. q to close.", vim.log.levels.INFO)
+	vim.notify("[dwight] Diff review open. q to close.", vim.log.levels.INFO)
 end
 --------------------------------------------------------------------
 -- Session logging (plan + execution log)
@@ -1361,7 +1358,7 @@ function M._save_session(session)
 
 		-- Append all quickfix entries as the execution log
 		for i, entry in ipairs(session.entries or {}) do
-			local icon = entry.type == "E" and "❌" or entry.type == "W" and "⚠️" or "✅"
+			local icon = entry.type == "E" and "x" or entry.type == "W" and "!" or "✓"
 			local file = entry.filename and (" `" .. vim.fn.fnamemodify(entry.filename, ":.") .. "`") or ""
 			lines[#lines + 1] = string.format("%d. %s %s%s", i, icon, entry.text or "", file)
 		end
