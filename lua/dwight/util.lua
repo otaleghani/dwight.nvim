@@ -16,19 +16,19 @@ local api = vim.api
 --- @param lines string[] — array of strings, some may contain \n
 --- @return string[] — flat array where every element is a single line
 function M.flatten_lines(lines)
-  local out = {}
-  for _, line in ipairs(lines) do
-    if type(line) ~= "string" then
-      out[#out + 1] = tostring(line)
-    elseif line:find("\n") then
-      for sub in (line .. "\n"):gmatch("([^\n]*)\n") do
-        out[#out + 1] = sub
-      end
-    else
-      out[#out + 1] = line
-    end
-  end
-  return out
+	local out = {}
+	for _, line in ipairs(lines) do
+		if type(line) ~= "string" then
+			out[#out + 1] = tostring(line)
+		elseif line:find("\n") then
+			for sub in (line .. "\n"):gmatch("([^\n]*)\n") do
+				out[#out + 1] = sub
+			end
+		else
+			out[#out + 1] = line
+		end
+	end
+	return out
 end
 
 --- Safe wrapper around nvim_buf_set_lines.
@@ -41,7 +41,7 @@ end
 --- @param strict boolean
 --- @param lines string[]
 function M.buf_set_lines(bufnr, start, end_, strict, lines)
-  api.nvim_buf_set_lines(bufnr, start, end_, strict, M.flatten_lines(lines))
+	api.nvim_buf_set_lines(bufnr, start, end_, strict, M.flatten_lines(lines))
 end
 
 --- Sanitize a string for use in a single nvim_buf_set_lines element.
@@ -50,8 +50,10 @@ end
 --- @param s string
 --- @return string
 function M.oneline(s)
-  if not s then return "" end
-  return tostring(s):gsub("\n", " "):gsub("\r", "")
+	if not s then
+		return ""
+	end
+	return tostring(s):gsub("\n", " "):gsub("\r", "")
 end
 
 return M

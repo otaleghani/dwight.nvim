@@ -53,103 +53,118 @@ IMPORTANT:
 
 --- Detect language from feature files.
 local function detect_feature_lang(files)
-  local counts = {}
-  for _, f in ipairs(files) do
-    local ext = f.path:match("(%.[^.]+)$") or ""
-    local lang = ({
-      [".go"] = "go", [".js"] = "javascript", [".ts"] = "typescript",
-      [".py"] = "python", [".lua"] = "lua", [".rs"] = "rust",
-      [".rb"] = "ruby", [".java"] = "java",
-    })[ext] or "unknown"
-    counts[lang] = (counts[lang] or 0) + 1
-  end
-  local best, best_count = "unknown", 0
-  for lang, count in pairs(counts) do
-    if count > best_count then best, best_count = lang, count end
-  end
-  return best
+	local counts = {}
+	for _, f in ipairs(files) do
+		local ext = f.path:match("(%.[^.]+)$") or ""
+		local lang = ({
+			[".go"] = "go",
+			[".js"] = "javascript",
+			[".ts"] = "typescript",
+			[".py"] = "python",
+			[".lua"] = "lua",
+			[".rs"] = "rust",
+			[".rb"] = "ruby",
+			[".java"] = "java",
+		})[ext] or "unknown"
+		counts[lang] = (counts[lang] or 0) + 1
+	end
+	local best, best_count = "unknown", 0
+	for lang, count in pairs(counts) do
+		if count > best_count then
+			best, best_count = lang, count
+		end
+	end
+	return best
 end
 
 --- Build file context for the LLM (signatures + key code sections).
 local function build_file_context(files)
-  local parts = {}
-  local ts_ok, ts = pcall(require, "dwight.treesitter")
-  local cwd = vim.fn.getcwd()
+	local parts = {}
+	local ts_ok, ts = pcall(require, "dwight.treesitter")
+	local cwd = vim.fn.getcwd()
 
-  for _, file_info in ipairs(files) do
-    local filepath = file_info.path
-    local full = filepath:sub(1, 1) == "/" and filepath or (cwd .. "/" .. filepath)
+	for _, file_info in ipairs(files) do
+		local filepath = file_info.path
+		local full = filepath:sub(1, 1) == "/" and filepath or (cwd .. "/" .. filepath)
 
-    -- Get minimap (signatures)
-    local minimap = ""
-    if ts_ok then minimap = ts.minimap(full) or "" end
+		-- Get minimap (signatures)
+		local minimap = ""
+		if ts_ok then
+			minimap = ts.minimap(full) or ""
+		end
 
-    -- Read file content (capped at 200 lines for token efficiency)
-    local content = ""
-    local f = io.open(full, "r")
-    if f then
-      local lines = {}
-      local count = 0
-      for line in f:lines() do
-        count = count + 1
-        if count <= 200 then
-          lines[#lines + 1] = string.format("%d: %s", count, line)
-        end
-      end
-      f:close()
-      if count > 200 then
-        lines[#lines + 1] = string.format("... (%d more lines)", count - 200)
-      end
-      content = table.concat(lines, "\n")
-    end
+		-- Read file content (capped at 200 lines for token efficiency)
+		local content = ""
+		local f = io.open(full, "r")
+		if f then
+			local lines = {}
+			local count = 0
+			for line in f:lines() do
+				count = count + 1
+				if count <= 200 then
+					lines[#lines + 1] = string.format("%d: %s", count, line)
+				end
+			end
+			f:close()
+			if count > 200 then
+				lines[#lines + 1] = string.format("... (%d more lines)", count - 200)
+			end
+			content = table.concat(lines, "\n")
+		end
 
-    parts[#parts + 1] = string.format("--- %s ---\nSignatures:\n%s\n\nSource:\n%s",
-      filepath, minimap, content)
-  end
+		parts[#parts + 1] = string.format("--- %s ---\nSignatures:\n%s\n\nSource:\n%s", filepath, minimap, content)
+	end
 
-  return table.concat(parts, "\n\n")
+	return table.concat(parts, "\n\n")
 end
 
 --- Generate characterization tests for a feature.
 --- callback(changes, err) — changes is multifile format or nil.
 function M._generate_char_tests(feature_name, feature, callback)
-  local lang = detect_feature_lang(feature.files)
-  local file_context = build_file_context(feature.files)
+	local lang = detect_feature_lang(feature.files)
+	local file_context = build_file_context(feature.files)
 
-  -- Cap context
-  if #file_context > 15000 then
-    file_context = file_context:sub(1, 15000) .. "\n... (truncated for token budget)"
-  end
+	-- Cap context
+	if #file_context > 15000 then
+		file_context = file_context:sub(1, 15000) .. "\n... (truncated for token budget)"
+	end
 
-  local prompt = string.format(CHAR_TEST_PROMPT, feature_name, lang, file_context)
+	local prompt = string.format(CHAR_TEST_PROMPT, feature_name, lang, file_context)
 
-  vim.notify(string.format("[dwight] 🧪 Generating characterization tests for $%s…", feature_name),
-    vim.log.levels.INFO)
+	vim.notify(
+		string.format("[dwight] 🧪 Generating characterization tests for $%s…", feature_name),
+		vim.log.levels.INFO
+	)
 
-  local log = require("dwight.log")
-  local job_id = log._next_id()
-  log.start(job_id, "heal:char-tests", api.nvim_get_current_buf(), 0, 0,
-    "Characterization tests for $" .. feature_name .. "\n\n" .. prompt:sub(1, 4000))
+	local log = require("dwight.log")
+	local job_id = log._next_id()
+	log.start(
+		job_id,
+		"heal:char-tests",
+		api.nvim_get_current_buf(),
+		0,
+		0,
+		"Characterization tests for $" .. feature_name .. "\n\n" .. prompt:sub(1, 4000)
+	)
 
-  require("dwight.skills")._run_llm(prompt, function(raw, code)
-    if code ~= 0 or not raw or vim.trim(raw) == "" then
-      log.finish(job_id, "error", raw or "", nil, "LLM generation failed")
-      callback(nil, "LLM generation failed")
-      return
-    end
+	require("dwight.skills")._run_llm(prompt, function(raw, code)
+		if code ~= 0 or not raw or vim.trim(raw) == "" then
+			log.finish(job_id, "error", raw or "", nil, "LLM generation failed")
+			callback(nil, "LLM generation failed")
+			return
+		end
 
-    local multifile = require("dwight.multifile")
-    local changes = multifile.parse(raw)  -- tries XML, then fenced blocks
-    if not changes or #changes == 0 then
-      log.finish(job_id, "parse_fail", raw, nil, "Could not parse test file output")
-      callback(nil, "Could not parse test file output")
-      return
-    end
+		local multifile = require("dwight.multifile")
+		local changes = multifile.parse(raw) -- tries XML, then fenced blocks
+		if not changes or #changes == 0 then
+			log.finish(job_id, "parse_fail", raw, nil, "Could not parse test file output")
+			callback(nil, "Could not parse test file output")
+			return
+		end
 
-    log.finish(job_id, "success", raw,
-      string.format("%d test file(s) generated", #changes), nil)
-    callback(changes, nil)
-  end)
+		log.finish(job_id, "success", raw, string.format("%d test file(s) generated", #changes), nil)
+		callback(changes, nil)
+	end)
 end
 
 --------------------------------------------------------------------
@@ -203,59 +218,73 @@ IMPORTANT:
 
 --- Format findings for the LLM prompt.
 local function format_findings(findings)
-  local parts = {}
-  for i, f in ipairs(findings) do
-    parts[#parts + 1] = string.format("%d. [%s] %s:%d — %s (%s)",
-      i, f.severity.label or f.severity, f.file, f.line, f.message, f.category)
-  end
-  return table.concat(parts, "\n")
+	local parts = {}
+	for i, f in ipairs(findings) do
+		parts[#parts + 1] = string.format(
+			"%d. [%s] %s:%d — %s (%s)",
+			i,
+			f.severity.label or f.severity,
+			f.file,
+			f.line,
+			f.message,
+			f.category
+		)
+	end
+	return table.concat(parts, "\n")
 end
 
 --- Generate an improvement plan for a feature.
 --- callback(plan_text, err)
 function M._generate_plan(feature_name, feature, findings, callback)
-  local lang = detect_feature_lang(feature.files)
-  local findings_text = format_findings(findings)
-  local file_context = build_file_context(feature.files)
+	local lang = detect_feature_lang(feature.files)
+	local findings_text = format_findings(findings)
+	local file_context = build_file_context(feature.files)
 
-  -- Cap for tokens
-  if #file_context > 12000 then
-    file_context = file_context:sub(1, 12000) .. "\n... (truncated)"
-  end
-  if #findings_text > 3000 then
-    findings_text = findings_text:sub(1, 3000) .. "\n... (truncated)"
-  end
+	-- Cap for tokens
+	if #file_context > 12000 then
+		file_context = file_context:sub(1, 12000) .. "\n... (truncated)"
+	end
+	if #findings_text > 3000 then
+		findings_text = findings_text:sub(1, 3000) .. "\n... (truncated)"
+	end
 
-  -- Detect verify command
-  local runner = require("dwight.runner")
-  local detect = runner._detect_runner()
-  local verify_hint = detect and detect.test_cmd or "echo 'no test runner detected'"
+	-- Detect verify command
+	local runner = require("dwight.runner")
+	local detect = runner._detect_runner()
+	local verify_hint = detect and detect.test_cmd or "echo 'no test runner detected'"
 
-  local prompt = string.format(HEAL_PLAN_PROMPT,
-    feature_name, lang, findings_text, file_context, feature_name)
-  -- Replace verify placeholder
-  prompt = prompt:gsub("%[TEST_COMMAND%]", verify_hint)
+	local prompt = string.format(HEAL_PLAN_PROMPT, feature_name, lang, findings_text, file_context, feature_name)
+	-- Replace verify placeholder
+	prompt = prompt:gsub("%[TEST_COMMAND%]", verify_hint)
 
-  vim.notify(string.format("[dwight] 📋 Generating improvement plan for $%s (%d findings)…",
-    feature_name, #findings), vim.log.levels.INFO)
+	vim.notify(
+		string.format("[dwight] 📋 Generating improvement plan for $%s (%d findings)…", feature_name, #findings),
+		vim.log.levels.INFO
+	)
 
-  local log = require("dwight.log")
-  local job_id = log._next_id()
-  log.start(job_id, "heal:plan", api.nvim_get_current_buf(), 0, 0,
-    "Heal plan for $" .. feature_name .. " (" .. #findings .. " findings)\n\n" .. prompt:sub(1, 4000))
+	local log = require("dwight.log")
+	local job_id = log._next_id()
+	log.start(
+		job_id,
+		"heal:plan",
+		api.nvim_get_current_buf(),
+		0,
+		0,
+		"Heal plan for $" .. feature_name .. " (" .. #findings .. " findings)\n\n" .. prompt:sub(1, 4000)
+	)
 
-  require("dwight.skills")._run_llm(prompt, function(raw, code)
-    if code ~= 0 or not raw or vim.trim(raw) == "" then
-      log.finish(job_id, "error", raw or "", nil, "Plan generation failed")
-      callback(nil, "Plan generation failed")
-      return
-    end
+	require("dwight.skills")._run_llm(prompt, function(raw, code)
+		if code ~= 0 or not raw or vim.trim(raw) == "" then
+			log.finish(job_id, "error", raw or "", nil, "Plan generation failed")
+			callback(nil, "Plan generation failed")
+			return
+		end
 
-    -- Extract the plan (strip any preamble/postamble from LLM)
-    local plan = raw:match("(@dwight:scope.+)") or raw
-    log.finish(job_id, "success", raw, plan:sub(1, 500), nil)
-    callback(plan, nil)
-  end)
+		-- Extract the plan (strip any preamble/postamble from LLM)
+		local plan = raw:match("(@dwight:scope.+)") or raw
+		log.finish(job_id, "success", raw, plan:sub(1, 500), nil)
+		callback(plan, nil)
+	end)
 end
 
 --------------------------------------------------------------------
@@ -291,69 +320,98 @@ Rules:
 
 --- Heal a single finding interactively.
 function M.heal_finding(feature_name, finding)
-  local cwd = vim.fn.getcwd()
-  local full = finding.file:sub(1, 1) == "/" and finding.file or (cwd .. "/" .. finding.file)
+	local cwd = vim.fn.getcwd()
+	local full = finding.file:sub(1, 1) == "/" and finding.file or (cwd .. "/" .. finding.file)
 
-  local f = io.open(full, "r")
-  if not f then
-    vim.notify("[dwight] Cannot read file: " .. finding.file, vim.log.levels.ERROR)
-    return
-  end
-  local lines = {}
-  for line in f:lines() do lines[#lines + 1] = line end
-  f:close()
+	local f = io.open(full, "r")
+	if not f then
+		vim.notify("[dwight] Cannot read file: " .. finding.file, vim.log.levels.ERROR)
+		return
+	end
+	local lines = {}
+	for line in f:lines() do
+		lines[#lines + 1] = line
+	end
+	f:close()
 
-  -- Extract context around the finding (±10 lines)
-  local start_ctx = math.max(1, finding.line - 10)
-  local end_ctx = math.min(#lines, finding.line + 20)
-  local snippet_lines = {}
-  for i = start_ctx, end_ctx do
-    snippet_lines[#snippet_lines + 1] = string.format("%d: %s", i, lines[i] or "")
-  end
+	-- Extract context around the finding (±10 lines)
+	local start_ctx = math.max(1, finding.line - 10)
+	local end_ctx = math.min(#lines, finding.line + 20)
+	local snippet_lines = {}
+	for i = start_ctx, end_ctx do
+		snippet_lines[#snippet_lines + 1] = string.format("%d: %s", i, lines[i] or "")
+	end
 
-  local prompt = string.format(HEAL_SINGLE_PROMPT,
-    feature_name, finding.file, finding.line,
-    finding.severity.label or "WARN", finding.category, finding.message,
-    table.concat(snippet_lines, "\n"),
-    finding.file, start_ctx, end_ctx)
+	local prompt = string.format(
+		HEAL_SINGLE_PROMPT,
+		feature_name,
+		finding.file,
+		finding.line,
+		finding.severity.label or "WARN",
+		finding.category,
+		finding.message,
+		table.concat(snippet_lines, "\n"),
+		finding.file,
+		start_ctx,
+		end_ctx
+	)
 
-  vim.notify(string.format("[dwight] 🩹 Generating fix for %s:%d…",
-    finding.file, finding.line), vim.log.levels.INFO)
+	vim.notify(
+		string.format("[dwight] 🩹 Generating fix for %s:%d…", finding.file, finding.line),
+		vim.log.levels.INFO
+	)
 
-  local log = require("dwight.log")
-  local job_id = log._next_id()
-  log.start(job_id, "heal:fix", api.nvim_get_current_buf(), 0, 0,
-    string.format("Heal finding: %s:%d — %s\n\n%s", finding.file, finding.line, finding.message, prompt:sub(1, 4000)))
+	local log = require("dwight.log")
+	local job_id = log._next_id()
+	log.start(
+		job_id,
+		"heal:fix",
+		api.nvim_get_current_buf(),
+		0,
+		0,
+		string.format(
+			"Heal finding: %s:%d — %s\n\n%s",
+			finding.file,
+			finding.line,
+			finding.message,
+			prompt:sub(1, 4000)
+		)
+	)
 
-  require("dwight.skills")._run_llm(prompt, function(raw, code)
-    if code ~= 0 or not raw or vim.trim(raw) == "" then
-      log.finish(job_id, "error", raw or "", nil, "Fix generation failed")
-      vim.notify("[dwight] Fix generation failed.", vim.log.levels.ERROR)
-      return
-    end
+	require("dwight.skills")._run_llm(prompt, function(raw, code)
+		if code ~= 0 or not raw or vim.trim(raw) == "" then
+			log.finish(job_id, "error", raw or "", nil, "Fix generation failed")
+			vim.notify("[dwight] Fix generation failed.", vim.log.levels.ERROR)
+			return
+		end
 
-    local multifile = require("dwight.multifile")
-    local changes = multifile.parse_xml(raw)
-    if not changes or #changes == 0 then
-      log.finish(job_id, "parse_fail", raw, nil, "Could not parse fix output")
-      vim.notify("[dwight] Could not parse fix. Raw output saved to log.", vim.log.levels.ERROR)
-      return
-    end
+		local multifile = require("dwight.multifile")
+		local changes = multifile.parse_xml(raw)
+		if not changes or #changes == 0 then
+			log.finish(job_id, "parse_fail", raw, nil, "Could not parse fix output")
+			vim.notify("[dwight] Could not parse fix. Raw output saved to log.", vim.log.levels.ERROR)
+			return
+		end
 
-    log.finish(job_id, "success", raw,
-      string.format("Fix for %s:%d — %d file change(s)", finding.file, finding.line, #changes), nil)
+		log.finish(
+			job_id,
+			"success",
+			raw,
+			string.format("Fix for %s:%d — %d file change(s)", finding.file, finding.line, #changes),
+			nil
+		)
 
-    -- Preview changes before applying
-    multifile.preview(changes,
-      function()  -- on_accept
-        local count = multifile.apply_all(changes)
-        vim.notify(string.format("[dwight] 🩹 Applied fix to %d file(s). Use u to undo.", count),
-          vim.log.levels.INFO)
-      end,
-      function()  -- on_reject
-        vim.notify("[dwight] Fix rejected.", vim.log.levels.INFO)
-      end)
-  end)
+		-- Preview changes before applying
+		multifile.preview(changes, function() -- on_accept
+			local count = multifile.apply_all(changes)
+			vim.notify(
+				string.format("[dwight] 🩹 Applied fix to %d file(s). Use u to undo.", count),
+				vim.log.levels.INFO
+			)
+		end, function() -- on_reject
+			vim.notify("[dwight] Fix rejected.", vim.log.levels.INFO)
+		end)
+	end)
 end
 
 --------------------------------------------------------------------
@@ -362,168 +420,187 @@ end
 
 --- Show heal menu as a buffer with keybindings.
 local function show_heal_menu(feature_name, feature, findings, char_tests)
-  local lines = {
-    "╔══════════════════════════════════════════╗",
-    string.format("║  DwightHeal: $%s", feature_name),
-    string.format("║  %d finding(s) from audit", #findings),
-    "╠══════════════════════════════════════════╣",
-    "",
-  }
+	local lines = {
+		"╔══════════════════════════════════════════╗",
+		string.format("║  DwightHeal: $%s", feature_name),
+		string.format("║  %d finding(s) from audit", #findings),
+		"╠══════════════════════════════════════════╣",
+		"",
+	}
 
-  -- Show top findings
-  local show_count = math.min(8, #findings)
-  for i = 1, show_count do
-    local f = findings[i]
-    local sev_label = type(f.severity) == "table" and f.severity.label or tostring(f.severity)
-    lines[#lines + 1] = string.format("  [%s] %s:%d — %s", sev_label, f.file, f.line, f.message)
-  end
-  if #findings > show_count then
-    lines[#lines + 1] = string.format("  ... +%d more", #findings - show_count)
-  end
+	-- Show top findings
+	local show_count = math.min(8, #findings)
+	for i = 1, show_count do
+		local f = findings[i]
+		local sev_label = type(f.severity) == "table" and f.severity.label or tostring(f.severity)
+		lines[#lines + 1] = string.format("  [%s] %s:%d — %s", sev_label, f.file, f.line, f.message)
+	end
+	if #findings > show_count then
+		lines[#lines + 1] = string.format("  ... +%d more", #findings - show_count)
+	end
 
-  lines[#lines + 1] = ""
-  lines[#lines + 1] = "╠══════════════════════════════════════════╣"
-  lines[#lines + 1] = "║  Actions:                                ║"
+	lines[#lines + 1] = ""
+	lines[#lines + 1] =
+		"╠══════════════════════════════════════════╣"
+	lines[#lines + 1] = "║  Actions:                                ║"
 
-  if char_tests then
-    lines[#lines + 1] = "║  t  Apply characterization tests first   ║"
-  end
-  lines[#lines + 1] = "║  p  Generate improvement plan (Agent)    ║"
-  lines[#lines + 1] = "║  f  Fix top 3 findings only              ║"
-  lines[#lines + 1] = "║  q  Cancel                               ║"
-  lines[#lines + 1] = "╚══════════════════════════════════════════╝"
+	if char_tests then
+		lines[#lines + 1] = "║  t  Apply characterization tests first   ║"
+	end
+	lines[#lines + 1] = "║  p  Generate improvement plan (Agent)    ║"
+	lines[#lines + 1] = "║  f  Fix top 3 findings only              ║"
+	lines[#lines + 1] = "║  q  Cancel                               ║"
+	lines[#lines + 1] =
+		"╚══════════════════════════════════════════╝"
 
-  local buf = api.nvim_create_buf(false, true)
-  api.nvim_buf_set_lines(buf, 0, -1, false, _flatten(lines))
-  vim.bo[buf].modifiable = false
-  vim.bo[buf].buftype = "nofile"
-  vim.bo[buf].bufhidden = "wipe"
-  vim.bo[buf].filetype = "dwight_heal"
+	local buf = api.nvim_create_buf(false, true)
+	api.nvim_buf_set_lines(buf, 0, -1, false, _flatten(lines))
+	vim.bo[buf].modifiable = false
+	vim.bo[buf].buftype = "nofile"
+	vim.bo[buf].bufhidden = "wipe"
+	vim.bo[buf].filetype = "dwight_heal"
 
-  local width = math.min(60, vim.o.columns - 4)
-  local height = math.min(#lines + 2, vim.o.lines - 4)
+	local width = math.min(60, vim.o.columns - 4)
+	local height = math.min(#lines + 2, vim.o.lines - 4)
 
-  local win = api.nvim_open_win(buf, true, {
-    relative = "editor",
-    width = width, height = height,
-    row = math.floor((vim.o.lines - height) / 2),
-    col = math.floor((vim.o.columns - width) / 2),
-    style = "minimal",
-    border = "rounded",
-    title = " DwightHeal ", title_pos = "center",
-  })
+	local win = api.nvim_open_win(buf, true, {
+		relative = "editor",
+		width = width,
+		height = height,
+		row = math.floor((vim.o.lines - height) / 2),
+		col = math.floor((vim.o.columns - width) / 2),
+		style = "minimal",
+		border = "rounded",
+		title = " DwightHeal ",
+		title_pos = "center",
+	})
 
-  local closed = false
-  local function close()
-    if closed then return end
-    closed = true
-    pcall(api.nvim_win_close, win, true)
-  end
+	local closed = false
+	local function close()
+		if closed then
+			return
+		end
+		closed = true
+		pcall(api.nvim_win_close, win, true)
+	end
 
-  -- t: Apply characterization tests
-  if char_tests then
-    vim.keymap.set("n", "t", function()
-      close()
-      local multifile = require("dwight.multifile")
-      multifile.preview(char_tests,
-        function()
-          local count = multifile.apply_all(char_tests)
-          vim.notify(string.format("[dwight] 🧪 Created %d characterization test file(s).", count),
-            vim.log.levels.INFO)
-          show_heal_menu(feature_name, feature, findings, nil)
-        end,
-        function()
-          vim.notify("[dwight] Characterization tests skipped.", vim.log.levels.INFO)
-          show_heal_menu(feature_name, feature, findings, nil)
-        end)
-    end, { buffer = buf, desc = "Apply char tests" })
-  end
+	-- t: Apply characterization tests
+	if char_tests then
+		vim.keymap.set("n", "t", function()
+			close()
+			local multifile = require("dwight.multifile")
+			multifile.preview(char_tests, function()
+				local count = multifile.apply_all(char_tests)
+				vim.notify(
+					string.format("[dwight] 🧪 Created %d characterization test file(s).", count),
+					vim.log.levels.INFO
+				)
+				show_heal_menu(feature_name, feature, findings, nil)
+			end, function()
+				vim.notify("[dwight] Characterization tests skipped.", vim.log.levels.INFO)
+				show_heal_menu(feature_name, feature, findings, nil)
+			end)
+		end, { buffer = buf, desc = "Apply char tests" })
+	end
 
-  -- p: Generate improvement plan
-  vim.keymap.set("n", "p", function()
-    close()
-    M._generate_plan(feature_name, feature, findings, function(plan, err)
-      if err then
-        vim.notify("[dwight] " .. err, vim.log.levels.ERROR)
-        return
-      end
-      M._open_plan(feature_name, plan)
-    end)
-  end, { buffer = buf, desc = "Generate plan" })
+	-- p: Generate improvement plan
+	vim.keymap.set("n", "p", function()
+		close()
+		M._generate_plan(feature_name, feature, findings, function(plan, err)
+			if err then
+				vim.notify("[dwight] " .. err, vim.log.levels.ERROR)
+				return
+			end
+			M._open_plan(feature_name, plan)
+		end)
+	end, { buffer = buf, desc = "Generate plan" })
 
-  -- f: Fix top 3
-  vim.keymap.set("n", "f", function()
-    close()
-    local top = {}
-    for i = 1, math.min(3, #findings) do top[#top + 1] = findings[i] end
+	-- f: Fix top 3
+	vim.keymap.set("n", "f", function()
+		close()
+		local top = {}
+		for i = 1, math.min(3, #findings) do
+			top[#top + 1] = findings[i]
+		end
 
-    vim.notify(string.format("[dwight] 🩹 Fixing top %d findings…", #top), vim.log.levels.INFO)
-    local function fix_next(idx)
-      if idx > #top then
-        vim.notify("[dwight] ✅ All fixes applied.", vim.log.levels.INFO)
-        return
-      end
-      M.heal_finding(feature_name, top[idx])
-      if idx < #top then
-        vim.notify(string.format("[dwight] %d more fix(es) queued. Run :DwightHeal %s to continue.",
-          #top - idx, feature_name), vim.log.levels.INFO)
-      end
-    end
-    fix_next(1)
-  end, { buffer = buf, desc = "Fix top 3" })
+		vim.notify(string.format("[dwight] 🩹 Fixing top %d findings…", #top), vim.log.levels.INFO)
+		local function fix_next(idx)
+			if idx > #top then
+				vim.notify("[dwight] ✅ All fixes applied.", vim.log.levels.INFO)
+				return
+			end
+			M.heal_finding(feature_name, top[idx])
+			if idx < #top then
+				vim.notify(
+					string.format(
+						"[dwight] %d more fix(es) queued. Run :DwightHeal %s to continue.",
+						#top - idx,
+						feature_name
+					),
+					vim.log.levels.INFO
+				)
+			end
+		end
+		fix_next(1)
+	end, { buffer = buf, desc = "Fix top 3" })
 
-  -- q/Esc: Cancel
-  vim.keymap.set("n", "q", close, { buffer = buf, desc = "Cancel" })
-  vim.keymap.set("n", "<Esc>", close, { buffer = buf, desc = "Cancel" })
+	-- q/Esc: Cancel
+	vim.keymap.set("n", "q", close, { buffer = buf, desc = "Cancel" })
+	vim.keymap.set("n", "<Esc>", close, { buffer = buf, desc = "Cancel" })
 end
 
 --- Open generated plan in a buffer for review.
 function M._open_plan(feature_name, plan_text)
-  -- Ensure directory exists
-  local project = require("dwight.project")
-  if project.is_initialized() then
-    vim.fn.mkdir(project.dir() .. "/plans", "p")
-  end
+	-- Ensure directory exists
+	local project = require("dwight.project")
+	if project.is_initialized() then
+		vim.fn.mkdir(project.dir() .. "/plans", "p")
+	end
 
-  local cwd = vim.fn.getcwd()
-  local filename = string.format(".dwight/plans/%s-heal.md", feature_name)
-  local full_path = cwd .. "/" .. filename
+	local cwd = vim.fn.getcwd()
+	local filename = string.format(".dwight/plans/%s-heal.md", feature_name)
+	local full_path = cwd .. "/" .. filename
 
-  -- Write to file
-  local f = io.open(full_path, "w")
-  if f then
-    f:write(plan_text)
-    f:close()
-  end
+	-- Write to file
+	local f = io.open(full_path, "w")
+	if f then
+		f:write(plan_text)
+		f:close()
+	end
 
-  vim.cmd("edit " .. vim.fn.fnameescape(full_path))
+	vim.cmd("edit " .. vim.fn.fnameescape(full_path))
 
-  -- Add a buffer-local keymap to execute via agentic agent
-  local bufnr = api.nvim_get_current_buf()
+	-- Add a buffer-local keymap to execute via agentic agent
+	local bufnr = api.nvim_get_current_buf()
 
-  local function run_heal()
-    -- Re-read the buffer (user may have edited)
-    local lines = api.nvim_buf_get_lines(bufnr, 0, -1, false)
-    local task = table.concat(lines, "\n")
+	local function run_heal()
+		-- Re-read the buffer (user may have edited)
+		local lines = api.nvim_buf_get_lines(bufnr, 0, -1, false)
+		local task = table.concat(lines, "\n")
 
-    -- Run through the agentic agent
-    vim.notify(string.format("[dwight] 🩹 Running heal plan for $%s via agent…", feature_name),
-      vim.log.levels.INFO)
-    require("dwight.agent").run(string.format(
-      "Execute this improvement plan for feature $%s:\n\n%s",
-      feature_name, task))
-  end
+		-- Run through the agentic agent
+		vim.notify(
+			string.format("[dwight] 🩹 Running heal plan for $%s via agent…", feature_name),
+			vim.log.levels.INFO
+		)
+		require("dwight.agent").run(
+			string.format("Execute this improvement plan for feature $%s:\n\n%s", feature_name, task)
+		)
+	end
 
-  vim.keymap.set("n", "<leader>x", run_heal,
-    { buffer = bufnr, desc = "Run heal plan via DwightAgent" })
-  vim.keymap.set("n", "<CR>", run_heal,
-    { buffer = bufnr, desc = "Run heal plan via DwightAgent" })
+	vim.keymap.set("n", "<leader>x", run_heal, { buffer = bufnr, desc = "Run heal plan via DwightAgent" })
+	vim.keymap.set("n", "<CR>", run_heal, { buffer = bufnr, desc = "Run heal plan via DwightAgent" })
 
-  vim.notify(string.format(
-    "[dwight] 📋 Heal plan for $%s saved to %s\n" ..
-    "  <CR> to run via DwightAgent.\n" ..
-    "  Edit the plan freely before executing.",
-    feature_name, filename), vim.log.levels.INFO)
+	vim.notify(
+		string.format(
+			"[dwight] 📋 Heal plan for $%s saved to %s\n"
+				.. "  <CR> to run via DwightAgent.\n"
+				.. "  Edit the plan freely before executing.",
+			feature_name,
+			filename
+		),
+		vim.log.levels.INFO
+	)
 end
 
 --- Main entry: :DwightHeal [feature-name]
@@ -531,66 +608,80 @@ end
 ---   findings = {...}   → pre-loaded findings (from DwightAudit)
 ---   skip_tests = true  → skip characterization test generation
 function M.heal(feature_name, opts)
-  opts = opts or {}
-  local features = require("dwight.features")
+	opts = opts or {}
+	local features = require("dwight.features")
 
-  -- If no feature name, let user pick
-  if not feature_name or feature_name == "" then
-    local names = features.names()
-    if #names == 0 then
-      vim.notify("[dwight] No features found. Tag your code with @feature:name pragmas first.", vim.log.levels.WARN)
-      return
-    end
-    require("dwight.select").pick(names, { prompt = "Heal which feature?" }, function(choice)
-      if choice then M.heal(choice, opts) end
-    end)
-    return
-  end
+	-- If no feature name, let user pick
+	if not feature_name or feature_name == "" then
+		local names = features.names()
+		if #names == 0 then
+			vim.notify(
+				"[dwight] No features found. Tag your code with @feature:name pragmas first.",
+				vim.log.levels.WARN
+			)
+			return
+		end
+		require("dwight.select").pick(names, { prompt = "Heal which feature?" }, function(choice)
+			if choice then
+				M.heal(choice, opts)
+			end
+		end)
+		return
+	end
 
-  local feature = features.build_feature(feature_name)
-  if not feature then
-    vim.notify(string.format("[dwight] Feature '%s' not found.", feature_name), vim.log.levels.ERROR)
-    return
-  end
+	local feature = features.build_feature(feature_name)
+	if not feature then
+		vim.notify(string.format("[dwight] Feature '%s' not found.", feature_name), vim.log.levels.ERROR)
+		return
+	end
 
-  -- Get findings: from opts, from saved audit, or run fresh audit
-  local findings = opts.findings
-  if not findings then
-    local audit = require("dwight.codebase_audit")
-    local saved = audit._load_audit(feature_name)
-    if saved then
-      findings = saved.findings
-      vim.notify(string.format("[dwight] Loaded %d findings from previous audit.", #findings), vim.log.levels.INFO)
-    end
-  end
+	-- Get findings: from opts, from saved audit, or run fresh audit
+	local findings = opts.findings
+	if not findings then
+		local audit = require("dwight.codebase_audit")
+		local saved = audit._load_audit(feature_name)
+		if saved then
+			findings = saved.findings
+			vim.notify(
+				string.format("[dwight] Loaded %d findings from previous audit.", #findings),
+				vim.log.levels.INFO
+			)
+		end
+	end
 
-  if not findings or #findings == 0 then
-    vim.notify(string.format("[dwight] No audit findings for $%s. Running DwightAudit first…", feature_name),
-      vim.log.levels.INFO)
-    local audit = require("dwight.codebase_audit")
-    audit.audit(feature_name)
-    -- User can then press H in the audit report to start heal
-    return
-  end
+	if not findings or #findings == 0 then
+		vim.notify(
+			string.format("[dwight] No audit findings for $%s. Running DwightAudit first…", feature_name),
+			vim.log.levels.INFO
+		)
+		local audit = require("dwight.codebase_audit")
+		audit.audit(feature_name)
+		-- User can then press H in the audit report to start heal
+		return
+	end
 
-  vim.notify(string.format("[dwight] 🩹 DwightHeal for $%s — %d findings to address.",
-    feature_name, #findings), vim.log.levels.INFO)
+	vim.notify(
+		string.format("[dwight] 🩹 DwightHeal for $%s — %d findings to address.", feature_name, #findings),
+		vim.log.levels.INFO
+	)
 
-  -- Phase 1: Offer characterization tests (unless skipped)
-  if not opts.skip_tests then
-    M._generate_char_tests(feature_name, feature, function(char_tests, err)
-      if err then
-        vim.notify("[dwight] Characterization test generation failed: " .. err, vim.log.levels.WARN)
-        show_heal_menu(feature_name, feature, findings, nil)
-      else
-        vim.notify(string.format("[dwight] 🧪 Generated %d characterization test file(s).", #char_tests),
-          vim.log.levels.INFO)
-        show_heal_menu(feature_name, feature, findings, char_tests)
-      end
-    end)
-  else
-    show_heal_menu(feature_name, feature, findings, nil)
-  end
+	-- Phase 1: Offer characterization tests (unless skipped)
+	if not opts.skip_tests then
+		M._generate_char_tests(feature_name, feature, function(char_tests, err)
+			if err then
+				vim.notify("[dwight] Characterization test generation failed: " .. err, vim.log.levels.WARN)
+				show_heal_menu(feature_name, feature, findings, nil)
+			else
+				vim.notify(
+					string.format("[dwight] 🧪 Generated %d characterization test file(s).", #char_tests),
+					vim.log.levels.INFO
+				)
+				show_heal_menu(feature_name, feature, findings, char_tests)
+			end
+		end)
+	else
+		show_heal_menu(feature_name, feature, findings, nil)
+	end
 end
 
 return M

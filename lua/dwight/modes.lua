@@ -85,11 +85,13 @@ When creating new files:
 --------------------------------------------------------------------
 
 M.registry = {
-  -- CODE MODES (only in code files)
-  document = {
-    name = "Document", icon = "📝", context = "code",
-    description = "Add documentation comments (jsdoc, godoc, docstring, etc.)",
-    task = [=[
+	-- CODE MODES (only in code files)
+	document = {
+		name = "Document",
+		icon = "📝",
+		context = "code",
+		description = "Add documentation comments (jsdoc, godoc, docstring, etc.)",
+		task = [=[
 Add documentation to the code below using the language's idiomatic doc style:
 - JavaScript/TypeScript: JSDoc (/** ... */)
 - Python: docstrings (""" ... """)
@@ -103,12 +105,14 @@ For each function, method, class, and module:
 - Keep original code exactly as-is — only add comments.
 - Comments explain WHY, not WHAT.
 ]=] .. SCOPE,
-  },
+	},
 
-  refactor = {
-    name = "Refactor", icon = "🔧", context = "code",
-    description = "Improve structure and readability",
-    task = [=[
+	refactor = {
+		name = "Refactor",
+		icon = "🔧",
+		context = "code",
+		description = "Improve structure and readability",
+		task = [=[
 Refactor the code below for better structure, readability, and maintainability:
 - Improve naming, reduce nesting, simplify conditionals.
 - Preserve external behavior — same inputs and outputs.
@@ -116,60 +120,70 @@ Refactor the code below for better structure, readability, and maintainability:
 - Respect existing code style.
 - You may extract local helpers WITHIN the selected code only.
 ]=] .. SCOPE,
-  },
+	},
 
-  optimize = {
-    name = "Optimize", icon = "⚡", context = "code",
-    description = "Performance optimization",
-    task = [=[
+	optimize = {
+		name = "Optimize",
+		icon = "⚡",
+		context = "code",
+		description = "Performance optimization",
+		task = [=[
 Optimize the code below for better performance:
 - Fix performance bottlenecks. Prefer algorithmic improvements.
 - Preserve correctness — identical results required.
 - If no meaningful optimization exists, return unchanged.
 ]=] .. SCOPE,
-  },
+	},
 
-  fix = {
-    name = "Fix", icon = "🐛", context = "code",
-    description = "Fix bugs",
-    task = [=[
+	fix = {
+		name = "Fix",
+		icon = "🐛",
+		context = "code",
+		description = "Fix bugs",
+		task = [=[
 Fix the code below:
 - Identify and fix bugs, errors, and broken logic.
 - If build/test output is provided, fix the specific failures.
 - Preserve the original intent and API.
 - Add brief comments explaining what was wrong and how it's fixed.
 ]=] .. SCOPE,
-  },
+	},
 
-  security = {
-    name = "Security", icon = "🔒", context = "code",
-    description = "Security audit and hardening",
-    task = [=[
+	security = {
+		name = "Security",
+		icon = "🔒",
+		context = "code",
+		description = "Security audit and hardening",
+		task = [=[
 Audit and fix security vulnerabilities in the code below:
 - Input validation: sanitize, validate types/ranges, prevent injection.
 - Authentication/authorization: check access, validate tokens.
 - Data handling: encrypt secrets, prevent leaks, safe serialization.
 - Fix issues inline. Add // SECURITY comments for decisions.
 ]=] .. SCOPE,
-  },
+	},
 
-  test = {
-    name = "Test", icon = "🧪", context = "code",
-    description = "Generate tests",
-    task = [=[
+	test = {
+		name = "Test",
+		icon = "🧪",
+		context = "code",
+		description = "Generate tests",
+		task = [=[
 Write tests for the code below.
 - Use the project's test framework if visible in context, otherwise use the standard one.
 - Cover: happy path, edge cases, error cases (as relevant to the request).
 - Keep tests focused — one assertion per logical behavior.
 - If the code has dependencies, mock/stub them appropriately.
 ]=] .. TEST_SCOPE,
-  },
+	},
 
-  stub = {
-    name = "Stub", icon = "🦴", context = "code",
-    description = "Generate function signatures and type stubs",
-    is_multi = true,  -- stubs may span multiple files
-    task = [=[
+	stub = {
+		name = "Stub",
+		icon = "🦴",
+		context = "code",
+		description = "Generate function signatures and type stubs",
+		is_multi = true, -- stubs may span multiple files
+		task = [=[
 Generate function stubs for the code below based on the user's instructions.
 
 CRITICAL: Only create stubs for what the user SPECIFICALLY asked for.
@@ -185,13 +199,15 @@ For each stub:
 
 If multiple files are needed, use the multi-file output format.
 ]=] .. STUB_SCOPE .. MULTI_FILE_RULES,
-  },
+	},
 
-  code = {
-    name = "Code", icon = "💻", context = "code",
-    description = "Implement stubs and TODOs",
-    is_multi = true,  -- code generation may span multiple files
-    task = [=[
+	code = {
+		name = "Code",
+		icon = "💻",
+		context = "code",
+		description = "Implement stubs and TODOs",
+		is_multi = true, -- code generation may span multiple files
+		task = [=[
 Implement the code below. If it's a stub, signature, TODO, or incomplete — write the full working code.
 - Follow existing signatures and types exactly.
 - Match code style and conventions from the surrounding context.
@@ -200,13 +216,15 @@ Implement the code below. If it's a stub, signature, TODO, or incomplete — wri
 
 If the implementation requires changes in multiple files, use the multi-file output format.
 ]=] .. SCOPE .. MULTI_FILE_RULES,
-  },
+	},
 
-  lint = {
-    name = "Lint", icon = "🔍", context = "code",
-    description = "AI-powered linting with diagnostics",
-    is_lint = true,
-    task = [=[
+	lint = {
+		name = "Lint",
+		icon = "🔍",
+		context = "code",
+		description = "AI-powered linting with diagnostics",
+		is_lint = true,
+		task = [=[
 Lint the code below. Find bugs, issues, and improvements.
 
 For EVERY issue found, output a comment line in this EXACT format:
@@ -227,13 +245,15 @@ Check for:
 Output ONLY the comment lines. No code, no preamble, no fences.
 If no issues found, output: // [INFO:L1] No issues found.
 ]=],
-  },
+	},
 
-  macro = {
-    name = "Macro", icon = "🎹", context = "code",
-    description = "Generate Neovim commands/macros",
-    is_macro = true,
-    task = [=[
+	macro = {
+		name = "Macro",
+		icon = "🎹",
+		context = "code",
+		description = "Generate Neovim commands/macros",
+		is_macro = true,
+		task = [=[
 Generate Neovim commands or macros based on the user's instructions.
 
 Output executable commands, one per line:
@@ -245,13 +265,15 @@ Output executable commands, one per line:
 Add a brief comment (starting with ") above each command.
 Output ONLY comments and commands. No fences, no preamble.
 ]=],
-  },
+	},
 
-  -- PROSE MODES (only in markdown/text files)
-  brainstorm = {
-    name = "Brainstorm", icon = "🧠", context = "prose",
-    description = "Brainstorm ideas and approaches",
-    task = [=[
+	-- PROSE MODES (only in markdown/text files)
+	brainstorm = {
+		name = "Brainstorm",
+		icon = "🧠",
+		context = "prose",
+		description = "Brainstorm ideas and approaches",
+		task = [=[
 Analyze the selected text and brainstorm ideas, approaches, and improvements.
 
 Structure your response as markdown:
@@ -263,13 +285,15 @@ Structure your response as markdown:
 
 Output markdown that replaces the selection.
 ]=] .. PROSE_SCOPE,
-  },
+	},
 
-  plan = {
-    name = "Plan", icon = "📋", context = "prose",
-    description = "Create a structured implementation plan",
-    is_plan = true,
-    task = [=[
+	plan = {
+		name = "Plan",
+		icon = "📋",
+		context = "prose",
+		description = "Create a structured implementation plan",
+		is_plan = true,
+		task = [=[
 Create a concrete, executable implementation plan based on the selected text.
 
 OUTPUT FORMAT — this plan will be parsed by dwight, so follow EXACTLY:
@@ -310,12 +334,14 @@ RULES:
 - Include a final "verify" step (run tests, build, etc).
 - Reference features with $name if they exist in context.
 ]=] .. PROSE_SCOPE,
-  },
+	},
 
-  refine = {
-    name = "Refine", icon = "✨", context = "prose",
-    description = "Refine and improve selected text",
-    task = [=[
+	refine = {
+		name = "Refine",
+		icon = "✨",
+		context = "prose",
+		description = "Refine and improve selected text",
+		task = [=[
 Refine and improve the selected markdown text:
 - Make it clearer, more specific, more actionable.
 - Fix grammar and awkward phrasing.
@@ -323,28 +349,32 @@ Refine and improve the selected markdown text:
 - Don't add filler or change the meaning.
 - If there are vague parts, make them concrete.
 ]=] .. PROSE_SCOPE,
-  },
+	},
 
-  -- BOTH CONTEXTS
-  explain = {
-    name = "Explain", icon = "💡", context = "both",
-    description = "Add explanatory comments/notes",
-    task = [=[
+	-- BOTH CONTEXTS
+	explain = {
+		name = "Explain",
+		icon = "💡",
+		context = "both",
+		description = "Add explanatory comments/notes",
+		task = [=[
 Add detailed explanatory comments to the content below:
 - Explain logic, patterns, and design decisions.
 - Do NOT modify any code — only add comments.
 - Reference design patterns and language idioms where relevant.
 ]=] .. SCOPE,
-  },
+	},
 
-  -- AGENT-SPECIFIC MODES (intentional roles for agent retries and step execution)
+	-- AGENT-SPECIFIC MODES (intentional roles for agent retries and step execution)
 
-  implement = {
-    name = "Implement", icon = "🔨", context = "code",
-    description = "Make tests pass — sees tests, writes source",
-    is_multi = true,
-    role = "implement",
-    task = [=[
+	implement = {
+		name = "Implement",
+		icon = "🔨",
+		context = "code",
+		description = "Make tests pass — sees tests, writes source",
+		is_multi = true,
+		role = "implement",
+		task = [=[
 Your SOLE job is to make the failing tests pass. You are given the test file(s) as context.
 
 1. Read the test assertions carefully to understand the EXACT expected behavior.
@@ -356,13 +386,15 @@ Your SOLE job is to make the failing tests pass. You are given the test file(s) 
 
 If the implementation requires changes in multiple files, use the multi-file output format.
 ]=] .. SCOPE .. MULTI_FILE_RULES,
-  },
+	},
 
-  fix_build = {
-    name = "Fix Build", icon = "🔧", context = "code",
-    description = "Fix compilation errors only — minimal changes",
-    role = "fix_build",
-    task = [=[
+	fix_build = {
+		name = "Fix Build",
+		icon = "🔧",
+		context = "code",
+		description = "Fix compilation errors only — minimal changes",
+		role = "fix_build",
+		task = [=[
 Fix the BUILD/COMPILATION errors shown in the error output. Make ONLY the minimum changes
 needed to make the code compile. Do NOT:
 - Change any logic or behavior
@@ -377,14 +409,16 @@ Common build errors to fix:
 - Syntax errors
 - Wrong number of arguments
 ]=] .. SCOPE,
-  },
+	},
 
-  fix_test = {
-    name = "Fix Test", icon = "🧪", context = "code",
-    description = "Fix specific test failures — sees failing test + error",
-    is_multi = true,
-    role = "fix_test",
-    task = [=[
+	fix_test = {
+		name = "Fix Test",
+		icon = "🧪",
+		context = "code",
+		description = "Fix specific test failures — sees failing test + error",
+		is_multi = true,
+		role = "fix_test",
+		task = [=[
 A specific test is FAILING. Fix the IMPLEMENTATION code (not the test) to make it pass.
 
 The error output shows which test failed and why. Focus on:
@@ -396,14 +430,16 @@ The error output shows which test failed and why. Focus on:
 
 If the fix requires changes in multiple files, use the multi-file output format.
 ]=] .. SCOPE .. MULTI_FILE_RULES,
-  },
+	},
 
-  fix_smoke = {
-    name = "Fix Smoke", icon = "🔥", context = "code",
-    description = "Fix runtime failures — unit tests pass but app crashes",
-    is_multi = true,
-    role = "fix_smoke",
-    task = [=[
+	fix_smoke = {
+		name = "Fix Smoke",
+		icon = "🔥",
+		context = "code",
+		description = "Fix runtime failures — unit tests pass but app crashes",
+		is_multi = true,
+		role = "fix_smoke",
+		task = [=[
 Unit tests PASS but the application FAILS at runtime. This is a WIRING problem.
 
 The smoke test output shows the runtime error. Focus on:
@@ -419,14 +455,16 @@ You MUST trace from the entry point to find where the wiring is broken.
 
 If the fix requires changes in multiple files, use the multi-file output format.
 ]=] .. SCOPE .. MULTI_FILE_RULES,
-  },
+	},
 
-  wire = {
-    name = "Wire", icon = "🔌", context = "code",
-    description = "Connect components — wire dependencies in main/init",
-    is_multi = true,
-    role = "wire",
-    task = [=[
+	wire = {
+		name = "Wire",
+		icon = "🔌",
+		context = "code",
+		description = "Connect components — wire dependencies in main/init",
+		is_multi = true,
+		role = "wire",
+		task = [=[
 Wire components together. You are given multiple source files that define types, interfaces,
 and functions. Your job is to connect them in the application's entry point.
 
@@ -444,15 +482,17 @@ Common wiring patterns:
 
 Fix ONLY the wiring/initialization code. Do NOT change business logic.
 ]=] .. SCOPE .. MULTI_FILE_RULES,
-  },
+	},
 
-  docs = {
-    name = "Docs", icon = "📄", context = "both",
-    description = "Generate documentation (comments in code, markdown in prose)",
-    is_docs = true,
-    -- Task is set dynamically based on filetype in M.get()
-    task = "",
-  },
+	docs = {
+		name = "Docs",
+		icon = "📄",
+		context = "both",
+		description = "Generate documentation (comments in code, markdown in prose)",
+		is_docs = true,
+		-- Task is set dynamically based on filetype in M.get()
+		task = "",
+	},
 }
 
 --------------------------------------------------------------------
@@ -494,101 +534,115 @@ Output clean Markdown. Use headers, code blocks, and callout blocks.
 --------------------------------------------------------------------
 
 function M.get(name)
-  if name == "fix_bugs" then name = "fix" end
+	if name == "fix_bugs" then
+		name = "fix"
+	end
 
-  -- Agent mode aliases with hyphens
-  local aliases = {
-    ["fix-build"] = "fix_build",
-    ["fix-test"] = "fix_test",
-    ["fix-smoke"] = "fix_smoke",
-  }
-  if aliases[name] then name = aliases[name] end
+	-- Agent mode aliases with hyphens
+	local aliases = {
+		["fix-build"] = "fix_build",
+		["fix-test"] = "fix_test",
+		["fix-smoke"] = "fix_smoke",
+	}
+	if aliases[name] then
+		name = aliases[name]
+	end
 
-  -- Backwards compat: /tdd → /code with inject_run_output
-  if name == "tdd" then
-    local code = M.registry["code"]
-    if code then
-      return vim.tbl_extend("force", code, {
-        name = "Code (+run)", icon = "🔴",
-        inject_run_output = true,
-      })
-    end
-  end
+	-- Backwards compat: /tdd → /code with inject_run_output
+	if name == "tdd" then
+		local code = M.registry["code"]
+		if code then
+			return vim.tbl_extend("force", code, {
+				name = "Code (+run)",
+				icon = "🔴",
+				inject_run_output = true,
+			})
+		end
+	end
 
-  local mode = M.registry[name]
-  if not mode then return nil end
+	local mode = M.registry[name]
+	if not mode then
+		return nil
+	end
 
-  -- Dynamic task for docs mode
-  if name == "docs" and mode.task == "" then
-    local ft = vim.bo.filetype
-    if ft == "markdown" or ft == "text" or ft == "help" then
-      return vim.tbl_extend("force", mode, { task = DOCS_PROSE_TASK })
-    else
-      return vim.tbl_extend("force", mode, { task = DOCS_CODE_TASK, is_docs = false })
-    end
-  end
+	-- Dynamic task for docs mode
+	if name == "docs" and mode.task == "" then
+		local ft = vim.bo.filetype
+		if ft == "markdown" or ft == "text" or ft == "help" then
+			return vim.tbl_extend("force", mode, { task = DOCS_PROSE_TASK })
+		else
+			return vim.tbl_extend("force", mode, { task = DOCS_CODE_TASK, is_docs = false })
+		end
+	end
 
-  return mode
+	return mode
 end
 
 --- List all mode names.
 function M.list()
-  local names = {}
-  for k in pairs(M.registry) do names[#names + 1] = k end
-  table.sort(names)
-  return names
+	local names = {}
+	for k in pairs(M.registry) do
+		names[#names + 1] = k
+	end
+	table.sort(names)
+	return names
 end
 
 --- List mode names filtered by filetype context.
 function M.list_for_filetype(filetype)
-  filetype = filetype or vim.bo.filetype
-  local is_prose = filetype == "markdown" or filetype == "text" or filetype == "help"
-    or filetype == "dwight_prompt"
-  local names = {}
-  for k, v in pairs(M.registry) do
-    local ctx = v.context or "both"
-    if ctx == "both" or (is_prose and ctx == "prose") or (not is_prose and ctx == "code") then
-      names[#names + 1] = k
-    end
-  end
-  table.sort(names)
-  return names
+	filetype = filetype or vim.bo.filetype
+	local is_prose = filetype == "markdown" or filetype == "text" or filetype == "help" or filetype == "dwight_prompt"
+	local names = {}
+	for k, v in pairs(M.registry) do
+		local ctx = v.context or "both"
+		if ctx == "both" or (is_prose and ctx == "prose") or (not is_prose and ctx == "code") then
+			names[#names + 1] = k
+		end
+	end
+	table.sort(names)
+	return names
 end
 
 function M.register(name, mode)
-  assert(mode.task, "Mode must have a 'task' field")
-  mode.name = mode.name or name
-  mode.icon = mode.icon or "🔹"
-  mode.description = mode.description or ""
-  mode.context = mode.context or "both"
-  M.registry[name] = mode
+	assert(mode.task, "Mode must have a 'task' field")
+	mode.name = mode.name or name
+	mode.icon = mode.icon or "🔹"
+	mode.description = mode.description or ""
+	mode.context = mode.context or "both"
+	M.registry[name] = mode
 end
 
 --- Resolve which model to use for a given mode name.
 --- Returns model_override (string or nil). nil = use default model.
 function M.resolve_model(mode_name)
-  local cfg = require("dwight").config
+	local cfg = require("dwight").config
 
-  -- Only apply diversity if both models are configured
-  if not cfg.test_model and not cfg.implement_model then return nil end
+	-- Only apply diversity if both models are configured
+	if not cfg.test_model and not cfg.implement_model then
+		return nil
+	end
 
-  -- Test-writing modes → test_model
-  local test_modes = { test = true, stub = true }
-  if test_modes[mode_name] and cfg.test_model then
-    return cfg.test_model
-  end
+	-- Test-writing modes → test_model
+	local test_modes = { test = true, stub = true }
+	if test_modes[mode_name] and cfg.test_model then
+		return cfg.test_model
+	end
 
-  -- Implementation/fix modes → implement_model
-  local impl_modes = {
-    code = true, implement = true,
-    fix = true, fix_build = true, fix_test = true, fix_smoke = true,
-    wire = true,
-  }
-  if impl_modes[mode_name] and cfg.implement_model then
-    return cfg.implement_model
-  end
+	-- Implementation/fix modes → implement_model
+	local impl_modes = {
+		code = true,
+		implement = true,
+		fix = true,
+		fix_build = true,
+		fix_test = true,
+		fix_smoke = true,
+		wire = true,
+	}
+	if impl_modes[mode_name] and cfg.implement_model then
+		return cfg.implement_model
+	end
 
-  return nil
+	return nil
 end
 
 return M

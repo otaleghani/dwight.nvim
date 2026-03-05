@@ -7,10 +7,14 @@ local T = _T
 
 -- Mock project module
 package.preload["dwight.project"] = function()
-  return {
-    is_initialized = function() return true end,
-    dir = function() return vim.fn.tempname() end,
-  }
+	return {
+		is_initialized = function()
+			return true
+		end,
+		dir = function()
+			return vim.fn.tempname()
+		end,
+	}
 end
 
 local health = require("dwight.health")
@@ -18,52 +22,60 @@ local health = require("dwight.health")
 io.write("── health._run_checks ──\n")
 
 T.test("_run_checks returns a table of results", function()
-  local results = health._run_checks()
-  T.assert(type(results) == "table", "should return a table")
-  T.assert(#results > 0, "should have at least one check")
+	local results = health._run_checks()
+	T.assert(type(results) == "table", "should return a table")
+	T.assert(#results > 0, "should have at least one check")
 end)
 
 T.test("each result has ok, name, detail", function()
-  local results = health._run_checks()
-  for _, r in ipairs(results) do
-    T.assert(type(r.ok) == "boolean", "result.ok should be boolean for: " .. (r.name or "?"))
-    T.assert(type(r.name) == "string" and r.name ~= "", "result.name should be non-empty string")
-    T.assert(type(r.detail) == "string" and r.detail ~= "", "result.detail should be non-empty string")
-  end
+	local results = health._run_checks()
+	for _, r in ipairs(results) do
+		T.assert(type(r.ok) == "boolean", "result.ok should be boolean for: " .. (r.name or "?"))
+		T.assert(type(r.name) == "string" and r.name ~= "", "result.name should be non-empty string")
+		T.assert(type(r.detail) == "string" and r.detail ~= "", "result.detail should be non-empty string")
+	end
 end)
 
 T.test("git check is included", function()
-  local results = health._run_checks()
-  local found = false
-  for _, r in ipairs(results) do
-    if r.name == "Git repository" then found = true end
-  end
-  T.ok(found, "should include git repository check")
+	local results = health._run_checks()
+	local found = false
+	for _, r in ipairs(results) do
+		if r.name == "Git repository" then
+			found = true
+		end
+	end
+	T.ok(found, "should include git repository check")
 end)
 
 T.test("backend check is included", function()
-  local results = health._run_checks()
-  local found = false
-  for _, r in ipairs(results) do
-    if r.name:match("^Backend:") then found = true end
-  end
-  T.ok(found, "should include backend check")
+	local results = health._run_checks()
+	local found = false
+	for _, r in ipairs(results) do
+		if r.name:match("^Backend:") then
+			found = true
+		end
+	end
+	T.ok(found, "should include backend check")
 end)
 
 T.test("project check is included", function()
-  local results = health._run_checks()
-  local found = false
-  for _, r in ipairs(results) do
-    if r.name == "Dwight project" then found = true end
-  end
-  T.ok(found, "should include project check")
+	local results = health._run_checks()
+	local found = false
+	for _, r in ipairs(results) do
+		if r.name == "Dwight project" then
+			found = true
+		end
+	end
+	T.ok(found, "should include project check")
 end)
 
 T.test("node check is included", function()
-  local results = health._run_checks()
-  local found = false
-  for _, r in ipairs(results) do
-    if r.name == "Node.js" then found = true end
-  end
-  T.ok(found, "should include Node.js check")
+	local results = health._run_checks()
+	local found = false
+	for _, r in ipairs(results) do
+		if r.name == "Node.js" then
+			found = true
+		end
+	end
+	T.ok(found, "should include Node.js check")
 end)
