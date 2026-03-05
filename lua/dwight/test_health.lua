@@ -15,16 +15,16 @@ end
 
 local health = require("dwight.health")
 
-io.write("── health.check ──\n")
+io.write("── health._run_checks ──\n")
 
-T.test("check returns a table of results", function()
-  local results = health.check()
+T.test("_run_checks returns a table of results", function()
+  local results = health._run_checks()
   T.assert(type(results) == "table", "should return a table")
   T.assert(#results > 0, "should have at least one check")
 end)
 
 T.test("each result has ok, name, detail", function()
-  local results = health.check()
+  local results = health._run_checks()
   for _, r in ipairs(results) do
     T.assert(type(r.ok) == "boolean", "result.ok should be boolean for: " .. (r.name or "?"))
     T.assert(type(r.name) == "string" and r.name ~= "", "result.name should be non-empty string")
@@ -33,7 +33,7 @@ T.test("each result has ok, name, detail", function()
 end)
 
 T.test("git check is included", function()
-  local results = health.check()
+  local results = health._run_checks()
   local found = false
   for _, r in ipairs(results) do
     if r.name == "Git repository" then found = true end
@@ -42,7 +42,7 @@ T.test("git check is included", function()
 end)
 
 T.test("backend check is included", function()
-  local results = health.check()
+  local results = health._run_checks()
   local found = false
   for _, r in ipairs(results) do
     if r.name:match("^Backend:") then found = true end
@@ -51,7 +51,7 @@ T.test("backend check is included", function()
 end)
 
 T.test("project check is included", function()
-  local results = health.check()
+  local results = health._run_checks()
   local found = false
   for _, r in ipairs(results) do
     if r.name == "Dwight project" then found = true end
@@ -60,7 +60,7 @@ T.test("project check is included", function()
 end)
 
 T.test("node check is included", function()
-  local results = health.check()
+  local results = health._run_checks()
   local found = false
   for _, r in ipairs(results) do
     if r.name == "Node.js" then found = true end
