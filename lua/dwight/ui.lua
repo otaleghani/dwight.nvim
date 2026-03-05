@@ -1121,7 +1121,7 @@ function M.open_prompt(selection, _preset_mode)
 	-- ?: toggle help popup
 	vim.keymap.set("n", "?", toggle_help, { buffer = buf, noremap = true, silent = true })
 	vim.keymap.set("i", "?", function()
-		toggle_help()
+		vim.schedule(toggle_help)
 		return ""
 	end, { buffer = buf, expr = true })
 end

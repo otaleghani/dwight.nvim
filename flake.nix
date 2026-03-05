@@ -19,9 +19,9 @@
         ];
         shellHook = ''
           echo "Welcome to dwight.nvim"
-          if [ -z "$TMUX" ]; then
-            exec tmux new-session -A -s dwight.nvim
-          fi
+          # if [ -z "$TMUX" ]; then
+          #   exec tmux new-session -A -s dwight.nvim
+          # fi
         '';
       };
     };

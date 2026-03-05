@@ -262,9 +262,19 @@ function M._register_commands()
 		end
 
 		local request = vim.trim(args)
+
+		-- Range provided: use visual selection as the request
+		if request == "" and o.range and o.range > 0 then
+			local sel = M._get_selection({ range = o.range })
+			if sel and sel.text and vim.trim(sel.text) ~= "" then
+				request = sel.text
+			end
+		end
+
 		require_mod("agent").run(request ~= "" and request or nil, opts)
 	end, {
 		nargs = "?",
+		range = true,
 		desc = "Autonomous agent (--plan = preview plan first, --jump = skip planning)",
 	})
 
@@ -385,9 +395,20 @@ function M._register_commands()
 
 	-- Autonomous mode: decompose + sequential agent execution
 	cmd("DwightAuto", function(o)
-		require_mod("auto").auto(o.args ~= "" and o.args or nil)
+		local request = o.args ~= "" and o.args or nil
+
+		-- Range provided: use visual selection as the request
+		if not request and o.range and o.range > 0 then
+			local sel = M._get_selection({ range = o.range })
+			if sel and sel.text and vim.trim(sel.text) ~= "" then
+				request = sel.text
+			end
+		end
+
+		require_mod("auto").auto(request)
 	end, {
 		nargs = "?",
+		range = true,
 		desc = "Autonomous mode: decompose complex request into sequential agent runs",
 	})
 
