@@ -680,9 +680,14 @@ end
 
 local EDITABLE_LINES = 6
 
-function M.open_prompt(selection, _preset_mode)
+function M.open_prompt(selection, opts)
+	opts = opts or {}
+	local dispatch = opts.dispatch or "invoke"
+
 	local cfg = require("dwight").config
-	M._source_bufnr = selection.bufnr
+	if selection then
+		M._source_bufnr = selection.bufnr
+	end
 
 	local width = math.floor(vim.o.columns * 0.65)
 	width = math.max(width, 60)
@@ -697,11 +702,16 @@ function M.open_prompt(selection, _preset_mode)
 	vim.bo[buf].bufhidden = "wipe"
 	vim.bo[buf].omnifunc = "v:lua.require'dwight.ui'.omnifunc"
 
-	local file_info = string.format(
-		"%d lines · %s",
-		selection.end_line - selection.start_line + 1,
-		vim.fn.fnamemodify(selection.filepath or "", ":t")
-	)
+	local file_info
+	if selection then
+		file_info = string.format(
+			"%d lines · %s",
+			selection.end_line - selection.start_line + 1,
+			vim.fn.fnamemodify(selection.filepath or "", ":t")
+		)
+	else
+		file_info = dispatch
+	end
 
 	local model_display = "default"
 	pcall(function()
@@ -1024,7 +1034,25 @@ function M.open_prompt(selection, _preset_mode)
 			end
 
 			vim.schedule(function()
-				if parsed.mode then
+				if dispatch == "agent" or dispatch == "auto" then
+					-- Build request string with resolved context appended
+					local request = parsed.clean_text
+					-- Append $feature file lists
+					for _, feat in ipairs(resolved_features) do
+						if feat.content then
+							request = request .. "\n\n" .. feat.content
+						end
+					end
+					-- Append +file contents
+					for _, f in ipairs(resolved_files) do
+						request = request .. "\n\n--- " .. f.name .. " ---\n" .. f.content
+					end
+					if dispatch == "agent" then
+						require("dwight.agent").run(request, opts.agent_opts or {})
+					else
+						require("dwight.auto").auto(request)
+					end
+				elseif parsed.mode then
 					local mode = require("dwight.modes").get(parsed.mode)
 					if mode then
 						-- Apply +run modifier: inject last build/test output
