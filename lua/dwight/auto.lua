@@ -2045,11 +2045,9 @@ end
 
 function M.auto(request)
   if not request or vim.trim(request) == "" then
-    vim.ui.input({ prompt = "🤖 What should Dwight build autonomously? " }, function(input)
-      if input and vim.trim(input) ~= "" then
-        M.auto(input)
-      end
-    end)
+    require("dwight.ui").open_prompt(nil, {
+      dispatch = "auto",
+    })
     return
   end
 

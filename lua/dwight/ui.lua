@@ -768,7 +768,7 @@ function M.open_prompt(selection, opts)
 		col = col,
 		style = "minimal",
 		border = cfg.border,
-		title = " dwight ",
+		title = dispatch == "invoke" and " dwight " or (" dwight:" .. dispatch .. " "),
 		title_pos = "center",
 	})
 

@@ -739,11 +739,10 @@ function M.run(request, opts)
   opts = opts or {}
 
   if not request or vim.trim(request) == "" then
-    vim.ui.input({ prompt = "🧠 What should Dwight build? " }, function(input)
-      if input and vim.trim(input) ~= "" then
-        M.run(input, opts)
-      end
-    end)
+    require("dwight.ui").open_prompt(nil, {
+      dispatch = "agent",
+      agent_opts = opts,
+    })
     return
   end
 
