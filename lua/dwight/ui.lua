@@ -725,7 +725,28 @@ function M.open_prompt(selection, _preset_mode)
 	for _ = 1, EDITABLE_LINES do
 		content[#content + 1] = ""
 	end
-	content[#content + 1] = "─── " .. file_info .. " · " .. model_display .. " · <?> help ───"
+	-- Build status bar with box-drawing characters
+	local left = "╰─ "
+	local mid_sep = " ─── "
+	local right_cap = " ─╯"
+	local help_hint = "? help"
+	-- Compute padding to fill the width
+	local inner = left .. file_info .. " · " .. model_display .. mid_sep .. help_hint .. right_cap
+	local inner_len = vim.fn.strdisplaywidth(inner)
+	local pad = ""
+	if inner_len < width then
+		pad = string.rep("─", width - inner_len)
+	end
+	local status_line = left
+		.. file_info
+		.. " · "
+		.. model_display
+		.. " ─"
+		.. pad
+		.. "── "
+		.. help_hint
+		.. " ─╯"
+	content[#content + 1] = status_line
 
 	api.nvim_buf_set_lines(buf, 0, -1, false, content)
 
@@ -746,9 +767,40 @@ function M.open_prompt(selection, _preset_mode)
 	vim.wo[win].wrap = true
 	vim.wo[win].linebreak = true
 
-	-- Highlight status bar
+	-- Highlight status bar segments with extmarks
 	local help_ns = api.nvim_create_namespace("dwight_help_hl")
+	local sl = status_line
+	-- Base: entire line as Comment (border chars)
 	api.nvim_buf_add_highlight(buf, help_ns, "Comment", EDITABLE_LINES, 0, -1)
+	-- File info segment (search after the leading box-drawing chars)
+	local fi_start = sl:find(file_info, #left, true)
+	if fi_start then
+		api.nvim_buf_add_highlight(buf, help_ns, "DwightFile", EDITABLE_LINES, fi_start - 1, fi_start - 1 + #file_info)
+	end
+	-- Model segment (search after file_info)
+	local md_start = sl:find(model_display, (fi_start or 1) + #file_info, true)
+	if md_start then
+		api.nvim_buf_add_highlight(
+			buf,
+			help_ns,
+			"DwightModel",
+			EDITABLE_LINES,
+			md_start - 1,
+			md_start - 1 + #model_display
+		)
+	end
+	-- Help hint (search from the end portion)
+	local hh_start = sl:find(help_hint, (md_start or 1) + #model_display, true)
+	if hh_start then
+		api.nvim_buf_add_highlight(
+			buf,
+			help_ns,
+			"DwightHelpHint",
+			EDITABLE_LINES,
+			hh_start - 1,
+			hh_start - 1 + #help_hint
+		)
+	end
 
 	-- Protect help lines
 	api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI" }, {
@@ -774,7 +826,6 @@ function M.open_prompt(selection, _preset_mode)
 		end
 
 		local help_width = 35
-		local help_height = 9
 		local help_row = row
 		local help_col = col + width + 2
 
@@ -783,21 +834,27 @@ function M.open_prompt(selection, _preset_mode)
 		vim.bo[help_buf].bufhidden = "wipe"
 		local help_lines = {
 			" Tokens",
-			"  /mode  fix test stub code …",
-			"  @skill  $feature  #symbol",
-			"  %lib  &mcp:res  +file",
-			"  ~audit:model  ^N depth",
-			"  !type:value  unified mods",
+			"  /mode   fix test stub …",
+			"  @skill  pick a skill",
+			"  $feat   project feature",
+			"  #sym    code symbol",
+			"  %lib    library docs",
+			"  &mcp    mcp resource",
+			"  +file   attach file",
+			"  ~audit  peer review",
+			"  ^N      think depth",
+			"  !model  override model",
+			"",
 			" Keys",
-			"  <CR> submit  <Tab> complete",
-			"  <Esc> normal  q close  ? help",
+			"  <CR> submit   <Tab> complete",
+			"  <Esc> normal  q close",
 		}
 		api.nvim_buf_set_lines(help_buf, 0, -1, false, help_lines)
 
 		help_win = api.nvim_open_win(help_buf, false, {
 			relative = "editor",
 			width = help_width,
-			height = help_height,
+			height = #help_lines,
 			row = help_row,
 			col = help_col,
 			style = "minimal",
@@ -808,8 +865,29 @@ function M.open_prompt(selection, _preset_mode)
 
 		vim.wo[help_win].winhl = "Normal:Normal,FloatBorder:DwightBorder"
 		local hl_ns = api.nvim_create_namespace("dwight_help_popup_hl")
+		-- Base: all lines as Comment
 		for i = 0, #help_lines - 1 do
 			api.nvim_buf_add_highlight(help_buf, hl_ns, "Comment", i, 0, -1)
+		end
+		-- Section titles → DwightTitle
+		api.nvim_buf_add_highlight(help_buf, hl_ns, "DwightTitle", 0, 0, -1)
+		api.nvim_buf_add_highlight(help_buf, hl_ns, "DwightTitle", 12, 0, -1)
+		-- Token sigils: highlight the sigil+keyword in each row
+		-- { line_idx, col_start (byte), col_end (byte), hl_group }
+		local sigil_hls = {
+			{ 1, 2, 7, "DwightMode" }, -- /mode
+			{ 2, 2, 8, "DwightSkill" }, -- @skill
+			{ 3, 2, 7, "DwightFeature" }, -- $feat
+			{ 4, 2, 6, "DwightSymbol" }, -- #sym
+			{ 5, 2, 6, "DwightLib" }, -- %lib
+			{ 6, 2, 6, "DwightMcp" }, -- &mcp
+			{ 7, 2, 7, "DwightFile" }, -- +file
+			{ 8, 2, 8, "DwightAudit" }, -- ~audit
+			{ 9, 2, 4, "DwightThink" }, -- ^N
+			{ 10, 2, 8, "DwightModel" }, -- !model
+		}
+		for _, h in ipairs(sigil_hls) do
+			api.nvim_buf_add_highlight(help_buf, hl_ns, h[4], h[1], h[2], h[3])
 		end
 	end
 
