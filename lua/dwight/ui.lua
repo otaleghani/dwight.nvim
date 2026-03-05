@@ -675,6 +675,52 @@ function M.omnifunc(findstart, base)
 end
 
 --------------------------------------------------------------------
+-- Agent/Auto Request Builder
+--------------------------------------------------------------------
+
+--- Build a context-enriched request string for agent/auto dispatch.
+--- Agent backends accept a plain string, so we append resolved context
+--- (features, files, symbols) to the user's clean text.
+local function build_agent_request(clean_text, parsed, resolved_features, resolved_files, resolved_symbols)
+	local parts = { clean_text }
+
+	-- $feature: append feature file lists
+	if #resolved_features > 0 then
+		local feat_lines = { "\n\nRelevant feature files:" }
+		for _, feat in ipairs(resolved_features) do
+			if feat.content then
+				feat_lines[#feat_lines + 1] = feat.content
+			end
+		end
+		parts[#parts + 1] = table.concat(feat_lines, "\n")
+	end
+
+	-- +file: append attached file contents
+	if #resolved_files > 0 then
+		local file_lines = { "\n\nAttached files:" }
+		for _, f in ipairs(resolved_files) do
+			file_lines[#file_lines + 1] = "--- " .. f.name .. " ---\n" .. f.content
+		end
+		parts[#parts + 1] = table.concat(file_lines, "\n")
+	end
+
+	-- #sym: append referenced symbol locations
+	if #resolved_symbols > 0 then
+		local sym_lines = { "\n\nReferenced symbols:" }
+		for _, sym in ipairs(resolved_symbols) do
+			local loc = sym.filepath
+					and sym.line
+					and string.format("%s:%d", vim.fn.fnamemodify(sym.filepath, ":."), sym.line)
+				or "unknown"
+			sym_lines[#sym_lines + 1] = "- " .. sym.name .. " (" .. loc .. ")"
+		end
+		parts[#parts + 1] = table.concat(sym_lines, "\n")
+	end
+
+	return table.concat(parts)
+end
+
+--------------------------------------------------------------------
 -- Floating Prompt Window
 --------------------------------------------------------------------
 
@@ -1035,18 +1081,13 @@ function M.open_prompt(selection, opts)
 
 			vim.schedule(function()
 				if dispatch == "agent" or dispatch == "auto" then
-					-- Build request string with resolved context appended
-					local request = parsed.clean_text
-					-- Append $feature file lists
-					for _, feat in ipairs(resolved_features) do
-						if feat.content then
-							request = request .. "\n\n" .. feat.content
-						end
-					end
-					-- Append +file contents
-					for _, f in ipairs(resolved_files) do
-						request = request .. "\n\n--- " .. f.name .. " ---\n" .. f.content
-					end
+					local request = build_agent_request(
+						parsed.clean_text,
+						parsed,
+						resolved_features,
+						resolved_files,
+						resolved_symbols
+					)
 					if dispatch == "agent" then
 						require("dwight.agent").run(request, opts.agent_opts or {})
 					else
