@@ -1424,12 +1424,16 @@ function M._execute_task_agentic(task, task_num, total_tasks, master_request, st
     language = detected_lang,
 
     on_status = function(text)
-      status.stop_spin()
-      status.append(string.format("[%d/%d] %s", task_num, total_tasks, text))
+      if #text > 15 then
+        status.stop_spin()
+        status.append(string.format("[%d/%d] %s", task_num, total_tasks, text:sub(1, 500)))
+      end
     end,
 
     on_tool = function(desc)
-      status.spin(string.format("[%d/%d] %s", task_num, total_tasks, desc))
+      status.stop_spin()
+      status.append(string.format("  [%d/%d] %s", task_num, total_tasks, desc))
+      status.spin(string.format("[%d/%d] working...", task_num, total_tasks))
     end,
 
     on_complete = function(success, data)
