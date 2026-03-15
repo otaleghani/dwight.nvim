@@ -72,6 +72,8 @@ Displays a report showing:
 
 Aim for 90%+ coverage. Untagged files don't appear in feature context, so agents may miss them.
 
+![Coverage report](../assets/coverage.gif)
+
 ---
 
 ## Tips

@@ -4,7 +4,7 @@
 
 theme: "cyberdream"
 font: "inter"
-# url: "https://dwight.talesign.com"
+url: "https://dwight.talesign.com"
 name: "Dwight"
 input: "./docs"
 output: "./public"

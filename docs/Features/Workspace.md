@@ -16,6 +16,8 @@ Dwight can manage multiple repositories as a single workspace. Features span rep
 3. **Browse features** — `:DwightWorkspaceFeatures` lists features across all repos.
 4. **Track issues** — `:DwightWorkspaceIssues` shows GitHub issues from all repos in one picker.
 
+![Workspace overview](../assets/workspace.gif)
+
 ---
 
 ## Setting Up

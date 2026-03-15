@@ -7,6 +7,8 @@ description: Configure backends, API providers, model switching, MCP servers, an
 
 Dwight separates **backends** (CLI tools that run agents) from **providers** (API services for single-shot operations). This page explains both systems and how to configure them.
 
+![Providers and model switching](../assets/providers.gif)
+
 ---
 
 ## How It Works

@@ -25,6 +25,8 @@ Features are groups of files defined by `@feature:` pragma comments in your sour
 
 Opens a Telescope picker (or fallback list) of all features detected from `@feature:` pragmas across the project. Each entry shows the feature name, file count, and concatenated description.
 
+![Browsing features](../assets/features.gif)
+
 ---
 
 ## Previewing Context
@@ -43,6 +45,8 @@ The preview shows what an agent would see:
 
 `:DwightProjectContext` shows the broader project-level context that wraps feature context — project scope, skills, lessons, and the codebase digest.
 
+![Project context preview](../assets/project-context.gif)
+
 ---
 
 ## Treesitter Minimap
@@ -53,6 +57,8 @@ The preview shows what an agent would see:
 ```
 
 Opens a split buffer with a compact signature map — every function, type, and class extracted by treesitter. Useful for understanding file structure at a glance without reading implementation details.
+
+![Treesitter minimap](../assets/minimap.gif)
 
 ---
 

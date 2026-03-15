@@ -44,6 +44,8 @@ Opens a full-width telemetry dashboard in a split buffer with:
 - **Mode distribution** — invocations across operation modes
 - **Job log summary** — recent success/failure counts
 
+![Stats dashboard](../assets/stats.gif)
+
 ```vim
 :DwightStats features      " Feature-only view
 ```

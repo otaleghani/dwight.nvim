@@ -25,6 +25,8 @@ Inline Editing is Dwight's core interaction model. Select code (or let treesitte
 :'<,'>DwightMode refactor
 ```
 
+![Invoke prompt flow](../assets/invoke-prompt.gif)
+
 ---
 
 ## Modes

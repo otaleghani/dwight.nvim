@@ -16,6 +16,8 @@ The Whiteboard is a persistent scratch buffer for thinking with AI. Unlike Agent
 3. **Fire** — visually select text and use keymaps to send it to Agent or Auto mode.
 4. **Save** — `:DwightWhiteboardSave` archives the content to `.dwight/brainstorm/` for later reference.
 
+![Whiteboard in action](../assets/whiteboard.gif)
+
 ```vim
 :DwightWhiteboard
 ```

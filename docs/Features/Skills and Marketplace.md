@@ -70,6 +70,8 @@ Brief description (2-3 sentences).
 
 Built-in skills (copied on `:DwightInit`): `clean-code`, `error-handling`, `performance`, `security`, `testing`.
 
+![Browsing skills and marketplace](../assets/skills.gif)
+
 ---
 
 ## Marketplace

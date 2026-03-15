@@ -95,6 +95,8 @@ After installing, run the health check:
 
 This validates your backend, API keys, git status, project initialization, and test command detection. Fix any errors before proceeding.
 
+![Health check output](assets/health.gif)
+
 ---
 
 ## Initialize Your Project
