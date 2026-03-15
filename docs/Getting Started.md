@@ -34,11 +34,13 @@ npm install -g @google/gemini-cli
 # Authenticate via gcloud or set GOOGLE_API_KEY
 ```
 
+See [[Providers and Models]] for all backend options including OpenCode.
+
 ### Git
 Dwight uses git for checkpoints during multi-step tasks and for diff review. Your project must be a git repository.
 
 ### API Key (optional)
-An API key is only needed for single-shot commands like `:DwightGenSkill` and `:DwightRefactor`. If you only use `:DwightAuto` and `:DwightAgent`, the CLI backend handles authentication.
+An API key is only needed for single-shot commands like `:DwightGenSkill` and inline modes. If you only use `:DwightAuto` and `:DwightAgent`, the CLI backend handles authentication.
 
 Set one of: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GOOGLE_API_KEY`.
 
@@ -106,67 +108,139 @@ This creates the `.dwight/` directory with built-in coding skills. Add `.dwight/
 ### Bootstrap Pragmas
 Next, let Dwight analyze your codebase and add feature pragmas:
 ```vim
-:DwightBootstrap
+:DwightBootstrap --agentic
 ```
 
-Choose **Agentic** mode (recommended) — it reads your source code to understand the architecture and adds meaningful `@feature:` comments. Quick mode uses directory scanning and is faster but shallower.
+Agentic mode reads your source code to understand the architecture and adds meaningful `@feature:` comments. Quick mode (`--quick`) uses directory scanning and is faster but shallower.
 
-After bootstrapping, your files will have pragma comments like:
+After bootstrapping, your files will have pragma comments:
 ```go
 // HTTP server and routing for the web interface. @feature:web-server
 package web
 ```
 
-```python
-# Database models and ORM configuration. @feature:database
-from sqlalchemy import create_engine
-```
-
 ### Verify Features
-Check that pragmas were added correctly:
 ```vim
 :DwightFeatures    " List all detected features
 :DwightCoverage    " See how many files are tagged
 ```
 
+See [[Bootstrap and Coverage]] for all bootstrap modes and options.
+
 ---
 
 ## Your First Task
 
-### Single Agent Task
-Try a focused task on one feature:
+### Inline Editing
+The quickest way to start — select code and apply a mode:
+```vim
+:'<,'>DwightMode refactor    " Refactor selected code
+:'<,'>DwightMode test        " Generate tests for selected code
+:'<,'>DwightMode fix         " Fix bugs in selected code
+```
+
+Or open the full prompt buffer:
+```vim
+:DwightInvoke                " Opens prompt with @skill and %lib support
+```
+
+See [[Inline Editing]] for all 18+ modes and prompt syntax.
+
+### Agent Task
+For autonomous tasks with full tool use:
 ```vim
 :DwightAgent Add input validation to the user creation endpoint
 ```
 
-The agent will read relevant files, make changes, and verify the result. You'll see a live status buffer with tool calls and progress.
+The agent reads files, writes code, runs commands, and self-corrects. See [[Agent Mode]].
 
-### Multi-Step Auto Task
+### Auto Task
 For larger work, use Auto mode:
 ```vim
 :DwightAuto Create a REST API for user management with CRUD endpoints
 ```
 
-Dwight will:
-1. Break this into sub-tasks (e.g., "Create user model", "Add list endpoint", "Write tests")
-2. Execute each sub-task through an agent
-3. Run your test command after each step
-4. Git commit after each passing step
-5. Show a summary when done
+Dwight will plan sub-tasks, execute each through an agent, run tests after each step, and git commit after each passing step. See [[Auto Mode]].
 
 ### Review What Changed
-After a task completes:
 ```vim
 :DwightDiffReview   " See the full diff in a split buffer
 :DwightReplay       " Step through the session event by event
-:copen              " QuickFix list of all changed files
 ```
 
 ---
 
+## Troubleshooting
+
+Common issues and how to fix them. For a full list of error messages, see [[Error Guide]].
+
+### Backend won't start
+
+**Symptom:** `:DwightAgent` or `:DwightAuto` fails immediately with "command not found" or "spawn failed".
+
+**Fix:**
+1. Verify the CLI is installed: `which claude` (or `codex`, `gemini`)
+2. If missing, install it: `npm install -g @anthropic-ai/claude-code`
+3. Make sure your `$PATH` includes the npm global bin directory — run `npm bin -g` to check
+4. Restart Neovim after installing (shell PATH changes don't propagate to running sessions)
+
+### Authentication failures
+
+**Symptom:** "Unauthorized", "invalid API key", or "token expired" errors.
+
+**Fix:**
+- **Claude Code:** Run `claude login` in your terminal to re-authenticate
+- **API key backends:** Verify your env var is set: `echo $ANTHROPIC_API_KEY` (or `OPENAI_API_KEY`, `GOOGLE_API_KEY`)
+- **OAuth tokens:** These expire — run `:DwightAuthMax` to re-authenticate with Anthropic Pro/Max
+- Check `:DwightProviders` to see current key/auth status
+
+### `:checkhealth` errors
+
+Run `:checkhealth dwight` and look for `ERROR` lines:
+
+| Error | Meaning | Fix |
+|-------|---------|-----|
+| Backend not found | CLI binary missing from PATH | Install the CLI (see above) |
+| No API key | Env var not set | Export `ANTHROPIC_API_KEY` or equivalent |
+| Git not available | `git` not in PATH | Install git |
+| Not a git repo | Project root has no `.git/` | Run `git init` |
+| Treesitter not available | `nvim-treesitter` not installed | Add it to your plugin manager |
+| No parsers installed | Language parsers missing | `:TSInstall <language>` |
+
+### Git errors
+
+**"Not a git repository"** — Dwight requires git for checkpoints. Run `git init` in your project root.
+
+**"Dirty working tree"** — Some commands (like `:DwightSquash`) need a clean tree. Commit or stash your changes first: `:DwightGit stash`.
+
+**"Merge conflict"** — If a checkpoint fails mid-apply, resolve conflicts manually or use `:DwightGit resolve`.
+
+### No features detected
+
+**Symptom:** `:DwightFeatures` shows nothing, or agent context is empty.
+
+**Fix:** Run `:DwightBootstrap` (or `:DwightBootstrap --agentic` for smarter analysis). This scans your source files and adds `@feature:` pragma comments. Check coverage with `:DwightCoverage`.
+
+### Treesitter missing
+
+**Symptom:** Feature context shows file paths but no function signatures.
+
+**Fix:** Install treesitter parsers for your language:
+```vim
+:TSInstall go lua python javascript typescript
+```
+Dwight uses treesitter to extract function/type signatures for feature context. Without it, the AI gets less precise context.
+
+---
+
 ## Next Steps
-- Read [[Core Concepts]] to understand pragmas, features, and skills
-- Explore [[Auto Mode]] for multi-step task execution
-- Set up [[Skills & Marketplace]] for project-specific coding guidelines
-- Check the [[Commands|command reference]] for all available commands
-- Review [[Configuration]] for all setup options
+- [[Core Concepts]] — understand pragmas, features, skills, and lessons
+- [[Inline Editing]] — in-buffer AI editing with modes
+- [[Agent Mode]] — autonomous single-task execution
+- [[Auto Mode]] — multi-step task planning and execution
+- [[Skills and Marketplace]] — project-specific coding guidelines
+- [[Recipes|Workflow Recipes]] — end-to-end walkthroughs for common tasks
+- [[FAQ]] — frequently asked questions
+- [[Error Guide]] — common error messages and fixes
+- [[Commands]] — full command reference
+- [[Configuration]] — all setup options

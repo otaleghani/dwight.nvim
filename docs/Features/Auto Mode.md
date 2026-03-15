@@ -1,28 +1,31 @@
 ---
-title: Auto Mode 
-description: Multi-step task planning and autonomous execution with verification gates and git checkpoints.
+title: Auto Mode
+description: Multi-step task planning and autonomous execution with verification gates, git checkpoints, and session control.
 ---
 
 # Auto Mode
 
-Auto Mode is Dwight's most powerful feature. Give it a high-level task description and it will plan, execute, verify, and checkpoint the work autonomously.
+Auto Mode is Dwight's most powerful feature. Give it a high-level task description and it will plan, execute, verify, and checkpoint the work autonomously — breaking complex tasks into 4-8 sub-tasks with full agent sessions, test verification, and git commits at every step.
 
-______________________________________________________________________
+---
 
 ## How It Works
 
+1. **Describe the task** — pass a natural-language prompt or visually select text.
+2. **Planning** — Dwight analyzes your project context and breaks the task into ordered sub-tasks.
+3. **Baseline snapshot** — runs your test suite and records pre-existing failures.
+4. **Execution** — each sub-task runs through a full agent session with tool use.
+5. **Verification gates** — after each sub-task, runs the detected test command. If tests fail, the agent gets one retry with error context.
+6. **Git checkpoints** — after each passing gate, creates a commit: `dwight: task 3/8 — Task list view page`.
+7. **Learning** — extracts lessons from the session for future use.
+
 ```vim
-:DwightAuto Create a web UI for this app using template/html and HTMX
+:DwightAuto Create a web UI using template/html and HTMX
 ```
-
-### 1. Planning
-
-Dwight analyzes your project context (features, file structure, existing code) and breaks the task into 4-8 sub-tasks. Each sub-task is scoped, ordered by dependency, and small enough for an agent to complete in one session.
 
 Example plan:
-
 ```
-📋 8 sub-tasks:
+8 sub-tasks:
   1. HTTP server foundation and routing
   2. Template infrastructure
   3. Task list view page
@@ -33,33 +36,7 @@ Example plan:
   8. Styling and polish
 ```
 
-### 2. Baseline Test Snapshot
-
-Before starting, Dwight runs your test suite and records any pre-existing failures. These won't count against verification gates later.
-
-### 3. Sub-Task Execution
-
-Each sub-task runs through an agent session with full tool use (read, write, edit, run commands, search). The agent has access to project context, skills, and lessons from past sessions.
-
-### 4. Verification Gates
-
-After each sub-task, Dwight runs the detected test command (e.g., `go test ./...`, `pytest`, `npm test`). If tests pass, it proceeds. If they fail, the agent gets one retry with the error output as context.
-
-### 5. Git Checkpoints
-
-After each passing verification gate, Dwight creates a git commit:
-
-```
-dwight: task 3/8 — Task list view page
-```
-
-This means you can always roll back to any intermediate state.
-
-### 6. Learning
-
-After the full session completes, Dwight extracts lessons from what happened — patterns that worked, errors that occurred, and fixes that were applied. These lessons are used in future sessions.
-
-______________________________________________________________________
+---
 
 ## Session Control
 
@@ -67,42 +44,86 @@ While Auto is running, you have full control:
 
 ```vim
 :DwightPause          " Pause after the current sub-task finishes
-:DwightContinue       " Resume a paused session
+:DwightContinue       " Resume a paused session (optional: override prompt)
 :DwightAutoCancel     " Cancel the entire session
-:DwightAutoSkip       " Skip the current failing sub-task
-:DwightAutoRetry      " Retry the last failed sub-task
-:DwightAutoResume     " Resume from the next pending sub-task
-:DwightAutoReview     " Review the remaining plan
+:DwightAutoSkip       " Skip the failed/next sub-task
+:DwightAutoRetry      " Retry failed sub-task with error context
+:DwightAutoResume     " Resume from next pending sub-task (optional: override prompt)
+:DwightAutoReview     " Review the remaining plan before continuing
 :DwightAutoStatus     " Show session progress
 ```
 
-______________________________________________________________________
+---
 
 ## Resumable Sessions
 
-If a sub-task fails even after retry, the session pauses. The state is saved to `.dwight/auto/current.json`. When you fix the issue manually, run `:DwightAutoResume` to continue from where it stopped. Previously completed tasks are marked with ✅ and skipped.
+If a sub-task fails even after retry, the session pauses. The state is saved to `.dwight/auto/current.json`. Fix the issue manually, then resume:
 
-______________________________________________________________________
+```vim
+:DwightAutoResume                        " Continue from next pending task
+:DwightAutoResume Fix the auth endpoint  " Override the next task's prompt
+```
+
+Previously completed tasks are marked with a checkmark and skipped.
+
+---
+
+## Visual Range
+
+Select text in any buffer and use it as the task description:
+
+```vim
+:'<,'>DwightAuto
+```
+
+The selected text becomes the prompt. Text arguments take precedence over visual selection if both are provided.
+
+---
+
+## Agent vs Auto
+
+| | Agent | Auto |
+|---|---|---|
+| **Scope** | Single task | Multi-step decomposition |
+| **Planning** | Optional (`--plan`) | Always plans first |
+| **Verification** | None | Test gates after each step |
+| **Git** | No automatic commits | Checkpoint after each step |
+| **Resumable** | No | Yes, full state persistence |
+| **Best for** | Focused fixes, single features | Large features, full implementations |
+
+Use `:DwightAgent` for tasks that fit in one session. Use `:DwightAuto` when the work naturally breaks into multiple steps.
+
+---
 
 ## Tips
 
-**Be specific about technology choices.** "Create a web UI" is vague. "Create a web UI using Go template/html and HTMX with a task list, create/edit/delete operations, and tag management" gives the planner enough to create good sub-tasks.
+- **Be specific about technology choices.** "Create a web UI" is vague. "Create a web UI using Go template/html and HTMX with task list, CRUD, and tag management" gives the planner better input.
+- **Commit before starting.** Auto creates git checkpoints, but a clean starting point means you can always `git reset --hard` to undo everything.
+- **Check your test command.** Verification gates depend on the detected test command. Run `:checkhealth dwight` to verify. Override with `languages` in setup if needed.
+- **Review with replay.** After a session, `:DwightReplay latest` steps through every tool call and shows what the agent did.
+- **Use `:DwightSquash` after.** Checkpoint commits are useful during execution but noisy in git history. Squash them before merging.
 
-**Commit before starting.** Auto creates git checkpoints, but having a clean starting point means you can always `git reset --hard` to undo everything.
+---
 
-**Check your test command.** Verification gates depend on your test command being correct. Run `:checkhealth dwight` to see what command Dwight detected. If it's wrong, configure it via `languages` in setup.
+## Commands
 
-**Review with replay.** After a session, `:DwightReplay latest` lets you step through every tool call and see exactly what the agent did.
+| Command | Args | Description |
+|---------|------|-------------|
+| `:DwightAuto` | `[task]` | Plan and execute a multi-step task. Accepts visual range |
+| `:DwightAutoStatus` | | Show session progress |
+| `:DwightAutoCancel` | | Cancel the running session |
+| `:DwightAutoRetry` | | Retry the last failed sub-task |
+| `:DwightAutoResume` | `[override prompt]` | Resume from next pending sub-task |
+| `:DwightAutoReview` | | Review the plan before continuing |
+| `:DwightAutoSkip` | | Skip the current sub-task |
+| `:DwightPause` | | Pause after current sub-task |
+| `:DwightContinue` | `[override prompt]` | Resume a paused session |
 
-______________________________________________________________________
+---
 
-## Visual range support
+## See Also
 
-Both `DwightAuto` and `DwightAgent` now accept `range = true`, so you can visually select text in **any buffer** and run:
-
-```vim
-:'DwightAgent
-:'DwightAuto
-```
-
-The selected text becomes the prompt. Uses `o.line1`/`o.line2` from the command handler (not `'<`/`'>` marks, which can be stale). If text args are also provided, they take precedence over the selection.
+- [[Agent Mode]] -- for single-task execution without decomposition
+- [[Git Operations]] -- `:DwightSquash` collapses checkpoint commits
+- [[TDD]] -- uses a similar test-verify loop for individual test cases
+- [[Session Replay]] -- step through Auto sessions event by event

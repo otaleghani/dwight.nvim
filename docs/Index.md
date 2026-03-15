@@ -25,36 +25,18 @@ Stop feeding entire codebases into AI. Dwight uses **pragma comments** in your s
 package auth
 ```
 
-The `@feature:auth` pragma tells Dwight which files belong together. When an agent works on auth, it only sees auth files. This keeps context tight and results accurate.
-
-### Autonomous Multi-Step Execution
-Give Dwight a task like "Create a web UI with HTMX" and it will:
-1. **Plan** — break it into 4-8 sub-tasks automatically
-2. **Execute** — run each sub-task through an AI agent with tool use
-3. **Verify** — run `go test ./...` (or your test command) after each step
-4. **Checkpoint** — git commit after each passing step
-5. **Learn** — extract lessons for future sessions
-
-If a step fails, it retries with the error context. If it still fails, it pauses so you can intervene.
+### Three Modes of Interaction
+- **Inline Editing** — select code, pick a mode (`/refactor`, `/test`, `/fix`), get in-buffer edits
+- **Agent Mode** — describe a task, the agent reads files, writes code, runs commands autonomously
+- **Auto Mode** — describe a complex task, Dwight breaks it into sub-tasks with verification gates and git checkpoints
 
 ### Skill System
-Skills are reusable markdown guides that tell the AI *how* to write code for your project. They encode patterns, anti-patterns, and conventions:
+Skills are reusable markdown guides that encode your project's coding patterns:
 
 ```vim
 :DwightGenSkill      " AI-generates a skill from a description
 :DwightMarketplace   " Browse curated skill packs for Go, React, Rust, etc.
 ```
-
-Skills are stored in `.dwight/skills/` and automatically included in agent context.
-
-### Session Replay
-Step through past agent sessions like a debugger. See every tool call, every thought, every result:
-
-```vim
-:DwightReplay latest    " Step through the most recent session
-```
-
-Navigate with `j`/`k`, jump between tool calls with `J`/`K`, toggle cumulative view with `v`.
 
 ---
 
@@ -72,7 +54,7 @@ Navigate with `j`/`k`, jump between tool calls with `J`/`K`, toggle cumulative v
   },
   config = function()
     require("dwight").setup({
-      backend = "claude_code",     -- or "codex", "gemini"
+      backend = "claude_code",     -- or "codex", "gemini", "opencode"
     })
   end,
 }
@@ -103,17 +85,17 @@ See [[Getting Started]] for the full setup guide.
 ### 1. Scope → [[Core Concepts]]
 Add pragma comments to define features: `// @feature:auth`, `// @feature:database`. Bootstrap does this automatically.
 
-### 2. Plan → [[Auto Mode]]
-`:DwightAuto <task>` breaks work into sub-tasks, each scoped to relevant features with verification gates.
+### 2. Edit → [[Inline Editing]]
+Select code and use modes like `/refactor`, `/test`, `/fix` for focused in-buffer edits.
 
-### 3. Build → [[Auto Mode]]
-Agents execute each sub-task: reading files, writing code, running commands, and self-correcting.
+### 3. Build → [[Agent Mode]] / [[Auto Mode]]
+`:DwightAgent` runs a single autonomous task. `:DwightAuto` decomposes complex tasks into sub-tasks with verification.
 
 ### 4. Review → [[Session Replay]]
 Step through what the agent did with `:DwightReplay`. Check the diff with `:DwightDiffReview`.
 
-### 5. Ship → [[CI/CD & GitHub]]
-`:DwightCI` auto-fixes CI failures. `:DwightPR` generates pull requests. `:DwightCommit` writes conventional commits.
+### 5. Ship → [[Git Operations]] / [[GitHub Integration]]
+`:DwightCommit` writes smart commits. `:DwightCI` auto-fixes CI failures. `:DwightPR` generates pull requests.
 
 ### 6. Learn → [[Core Concepts]]
 Dwight extracts lessons from each session and applies them to future tasks automatically.
@@ -124,53 +106,40 @@ Dwight extracts lessons from each session and applies them to future tasks autom
 
 | Feature | Command | Description |
 |---------|---------|-------------|
-| **Auto Mode** | `:DwightAuto` | Multi-step task planning and execution |
-| **Agent** | `:DwightAgent` | Single agentic task with tool use |
-| **Skills** | `:DwightSkills` | Browse and manage coding skills |
-| **Marketplace** | `:DwightMarketplace` | Install curated skill packs |
-| **Replay** | `:DwightReplay` | Step through past sessions |
-| **Bootstrap** | `:DwightBootstrap` | Auto-add feature pragmas |
-| **Split** | `:DwightSplitFeature` | Break large features into smaller ones |
-| **Audit & Heal** | `:DwightAudit` / `:DwightHeal` | Find and fix codebase quality issues |
-| **Docs** | `:DwightDocs` | Generate project documentation |
-| **TDD** | `:DwightTDD` | Test-driven development loop |
-| **CI/CD** | `:DwightCI` | Auto-fix CI pipeline failures |
-| **GitHub** | `:DwightPR` / `:DwightIssue` | PR and issue management |
-| **Workspace** | `:DwightWorkspace` | Multi-repo unified workspace |
-| **Stats** | `:DwightStats` | Telemetry dashboard and cost tracking |
-| **Whiteboard** | `:DwightWhiteboard` | AI brainstorming scratchpad |
-| **Templates** | `:DwightTemplate` | Reusable prompt templates |
-| **Health** | `:checkhealth dwight` | Validate your setup |
+| **[[Inline Editing]]** | `:DwightInvoke` | Select code, pick a mode, get in-buffer edits |
+| **[[Agent Mode]]** | `:DwightAgent` | Autonomous single-task with full tool use |
+| **[[Auto Mode]]** | `:DwightAuto` | Multi-step planning, execution, and verification |
+| **[[Bootstrap and Coverage]]** | `:DwightBootstrap` | Auto-add feature pragmas to source files |
+| **[[Feature Management]]** | `:DwightFeatures` | Browse, preview, and split features |
+| **[[Refactoring]]** | `:DwightRefactor` | Decompose large refactoring with importer analysis |
+| **[[TDD]]** | `:DwightTDD` | Test-driven development loop |
+| **[[Git Operations]]** | `:DwightGit` | Smart commits, squash, diff review |
+| **[[GitHub Integration]]** | `:DwightIssue` | Issues, PRs, CI auto-fix |
+| **[[Skills and Marketplace]]** | `:DwightSkills` | Coding skills and curated packs |
+| **[[Library References]]** | `:DwightAddLib` | Structured API references for dependencies |
+| **[[Docs Generation]]** | `:DwightDocs` | Generate and update project documentation |
+| **[[Codebase Audit and Heal]]** | `:DwightAudit` | Find and fix quality issues |
+| **[[Codebase Digest]]** | `:DwightDigest` | Pre-extract signatures for agent context |
+| **[[Session Replay]]** | `:DwightReplay` | Step through past sessions |
+| **[[Whiteboard]]** | `:DwightWhiteboard` | AI brainstorming scratchpad |
+| **[[Templates]]** | `:DwightTemplate` | Reusable prompt templates |
+| **[[Workspace]]** | `:DwightWorkspace` | Multi-repo unified workspace |
+| **[[Telemetry and Stats]]** | `:DwightStats` | Usage dashboard and cost tracking |
+| **[[Providers and Models]]** | `:DwightProviders` | Backend, provider, and model configuration |
 
-See the full [[Commands|command reference]] for all 80+ commands.
+See the full [[Commands|command reference]] for all 85+ commands.
 
 ---
 
 ## Advanced Features
 
 ### Multi-Repo Workspaces
-Work across multiple repositories as a single workspace. Features can span repos, agents have cross-repo context.
+Work across multiple repositories as a single workspace:
 ```vim
 :DwightWorkspaceAdd ../shared-lib
 :DwightWorkspaceFeatures
 ```
-See [[Multi-Repo Workspace]] for setup and usage.
-
-### Codebase Audit & Heal
-Find quality issues with static analysis and AI review, then fix them automatically:
-```vim
-:DwightAudit auth --deep     " Static + AI review
-:DwightHeal auth             " Char tests → plan → execute
-```
-See [[Codebase Audit & Heal]] for the full rehabilitation workflow.
-
-### Telemetry & Cost Tracking
-Track every invocation, token, and dollar locally:
-```vim
-:DwightStats                 " Full dashboard with daily trends
-:DwightStats export          " Export to JSON/CSV
-```
-See [[Telemetry & Stats]] for dashboard details.
+See [[Workspace]] for setup and usage.
 
 ### MCP Server Integration
 Connect external tools via the Model Context Protocol:
@@ -181,6 +150,7 @@ require("dwight").setup({
   },
 })
 ```
+See [[Providers and Models]] for MCP configuration.
 
 ### Custom Language Support
 Extend Dwight with project-specific language definitions:
@@ -194,8 +164,17 @@ require("dwight").setup({
 
 ---
 
+## Guides
+
+- [[Recipes|Workflow Recipes]] — end-to-end walkthroughs for common tasks
+- [[FAQ]] — frequently asked questions
+- [[Error Guide]] — common error messages and fixes
+- [[Changelog]] — version history and notable changes
+
+---
+
 ## Community & Contributing
 Dwight is open source (MIT).
 
 - **Found a bug?** [Open an issue on GitHub](https://github.com/otaleghani/dwight.nvim/issues).
-- **Questions?** Check `:checkhealth dwight` first — it catches most setup problems.
+- **Questions?** Check the [[FAQ]] or run `:checkhealth dwight` — it catches most setup problems.

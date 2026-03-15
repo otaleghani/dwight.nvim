@@ -1,6 +1,6 @@
 ---
 title: Configuration
-description: All configuration options for Dwight, including backends, providers, agent tuning, and language support.
+description: All configuration options for Dwight, including backends, providers, agent tuning, model diversity, and language support.
 ---
 
 # Configuration
@@ -28,7 +28,7 @@ The backend determines which CLI tool runs agentic tasks.
 ```lua
 require("dwight").setup({
   -- Which CLI agent runs agentic tasks.
-  -- "claude_code" (default) | "codex" | "gemini"
+  -- "claude_code" (default) | "codex" | "gemini" | "opencode"
   backend = "claude_code",
 
   -- Claude Code settings
@@ -42,8 +42,14 @@ require("dwight").setup({
   -- Gemini CLI settings
   gemini_bin = "gemini",           -- path to gemini binary
   gemini_model = nil,              -- nil = default
+
+  -- OpenCode settings
+  opencode_bin = "opencode",       -- path to opencode binary
+  opencode_flags = {},             -- additional CLI flags
 })
 ```
+
+See [[Providers and Models]] for details on each backend.
 
 ### Provider (for Skills API)
 The provider handles single-shot API calls used by `:DwightGenSkill`, `:DwightRefactor`, and other non-agentic commands. This is separate from the backend.
@@ -51,17 +57,25 @@ The provider handles single-shot API calls used by `:DwightGenSkill`, `:DwightRe
 ```lua
 require("dwight").setup({
   provider = nil,       -- nil = auto-detect from env vars
-                        -- "anthropic" | "openai" | "google"
+                        -- "anthropic" | "openai" | "gemini" | "openrouter"
   model = nil,          -- nil = provider default
                         -- or: "sonnet", "opus", "openai:gpt-4o"
   api_key = nil,        -- override; or set ANTHROPIC_API_KEY env var
   max_tokens = 4096,    -- max output tokens for single-shot calls
-
-  -- Use different models for different tasks
-  test_model = nil,     -- model for test generation
-  implement_model = nil, -- model for code implementation
 })
 ```
+
+### Model Diversity
+Use different models for test-writing vs implementation to reduce blind spots:
+
+```lua
+require("dwight").setup({
+  test_model = nil,        -- model for /test, /stub modes (e.g., "sonnet")
+  implement_model = nil,   -- model for /code, /implement, /fix modes (e.g., "opus")
+})
+```
+
+When both are set, Dwight routes to the correct model based on the mode. See [[Providers and Models]].
 
 ### Agent Tuning
 Fine-tune the agentic execution loop.
@@ -124,6 +138,8 @@ require("dwight").setup({
 })
 ```
 
+See [[Providers and Models]] for MCP details.
+
 ### Language Overrides
 Add or override language detection, test commands, and build commands.
 
@@ -145,7 +161,7 @@ require("dwight").setup({
 })
 ```
 
-Dwight auto-detects Go, Python, Rust, JavaScript, TypeScript, Lua, Ruby, C, C++, Zig, and more. Use this to override defaults or add languages Dwight doesn't know about.
+Dwight auto-detects Go, Python, Rust, JavaScript, TypeScript, Lua, Ruby, Java, Kotlin, C#, C, C++, Swift, Dart, Elixir, Scala, Haskell, Zig, OCaml, Clojure, R, PHP, and Shell. Use this to override defaults or add languages Dwight doesn't know about.
 
 ### Comment Styles
 Override how Dwight writes pragma comments for specific file extensions.
@@ -185,3 +201,17 @@ Dwight defines these highlight groups (all have `default = true` so your colorsc
 | `DwightSkillInvalid` | red, bold, strikethrough | Invalid `@skill` references |
 | `DwightMode` | orange, bold | Mode indicators |
 | `DwightSymbol` | purple, bold, underline | Symbol highlights |
+| `DwightModel` | green, bold, italic | Model name display |
+| `DwightFeature` | orange, bold, underline | Feature name highlights |
+| `DwightThink` | red, bold | Thinking indicator |
+| `DwightLib` | green, bold, underline | Library references |
+| `DwightMcp` | green, bold, italic, underline | MCP references |
+| `DwightFile` | blue-white, bold, underline | File path highlights |
+| `DwightAudit` | red, bold, italic | Audit findings |
+| `DwightHeal` | green, bold, italic | Heal operations |
+| `DwightAuto` | orange, bold, italic | Auto mode status |
+| `DwightGithub` | blue, bold, italic | GitHub elements |
+| `DwightReplace` | green, italic | Replacement text |
+| `DwightBorder` | blue | Float borders |
+| `DwightTitle` | purple, bold | Float titles |
+| `DwightHelpHint` | blue, italic | Help text |

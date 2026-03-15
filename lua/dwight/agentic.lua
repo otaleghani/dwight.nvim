@@ -471,7 +471,7 @@ BACKENDS.claude_code = {
 
 -- ─────────────────────────────────────────────────────────────────
 -- Codex (OpenAI)
--- CLI: codex -q --full-auto "prompt"
+-- CLI: codex exec --full-auto "prompt"
 -- Auth: OPENAI_API_KEY environment variable
 -- ─────────────────────────────────────────────────────────────────
 
@@ -481,7 +481,7 @@ BACKENDS.codex = {
 		local model = cfg.codex_model
 
 		local args = {
-			"-q",
+			"exec",
 			"--full-auto",
 			prompt,
 		}

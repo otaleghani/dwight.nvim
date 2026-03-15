@@ -2,6 +2,9 @@
 result
 tmp/
 .obsidian/
+docs/.obsidian/
 TODO.md
 CLAUDE.md
 .dwight/
+.claude/
+public/

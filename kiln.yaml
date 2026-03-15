@@ -1,0 +1,17 @@
+# Kiln configuration file
+# Uncomment and edit the options below to set defaults for your project.
+# CLI flags will override these values.
+
+theme: "cyberdream"
+font: "inter"
+# url: "https://dwight.talesign.com"
+name: "Dwight"
+input: "./docs"
+output: "./public"
+mode: "default"
+layout: "default"
+lang: "en"
+accent-color: "red"
+# flat-urls: false
+# disable-toc: false
+# disable-local-graph: false

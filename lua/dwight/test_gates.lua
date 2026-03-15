@@ -1,5 +1,5 @@
 -- tests/test_gates.lua
--- Tests for the verification pipeline gates in auto.lua.
+-- Tests for the verification pipeline gates in gates.lua.
 -- These test the gate orchestration logic, not actual tool execution.
 
 vim.opt.rtp:prepend(vim.fn.getcwd())
@@ -16,29 +16,29 @@ package.preload["dwight.project"] = function()
 	}
 end
 
-local auto = require("dwight.auto")
+local gates = require("dwight.gates")
 local T = _T
 
 io.write("── gate functions exist ──\n")
 
-T.test("_gate_lint exists and is callable", function()
-	T.assert(type(auto._gate_lint) == "function")
+T.test("lint gate exists and is callable", function()
+	T.assert(type(gates.lint) == "function")
 end)
 
-T.test("_gate_tests exists and is callable", function()
-	T.assert(type(auto._gate_tests) == "function")
+T.test("tests gate exists and is callable", function()
+	T.assert(type(gates.tests) == "function")
 end)
 
-T.test("_gate_coverage exists and is callable", function()
-	T.assert(type(auto._gate_coverage) == "function")
+T.test("coverage gate exists and is callable", function()
+	T.assert(type(gates.coverage) == "function")
 end)
 
-T.test("_gate_smoke exists and is callable", function()
-	T.assert(type(auto._gate_smoke) == "function")
+T.test("smoke gate exists and is callable", function()
+	T.assert(type(gates.smoke) == "function")
 end)
 
-T.test("_verification_gate exists and is callable", function()
-	T.assert(type(auto._verification_gate) == "function")
+T.test("run_all exists and is callable", function()
+	T.assert(type(gates.run_all) == "function")
 end)
 
 io.write("── gate_coverage skips when no baseline ──\n")
@@ -52,7 +52,7 @@ T.test("coverage gate skips with nil baseline", function()
 		spin = function() end,
 	}
 
-	auto._gate_coverage(mock_status, function(passed, _output)
+	gates.coverage(mock_status, function(passed, _output)
 		passed_result = passed
 	end, nil)
 
@@ -60,11 +60,23 @@ T.test("coverage gate skips with nil baseline", function()
 	T.eq(true, passed_result, "should pass when no baseline coverage")
 end)
 
-io.write("── verification pipeline structure ──\n")
+io.write("── backwards compat: auto.lua still exposes gates ──\n")
 
-T.test("pipeline function signature accepts baseline_coverage", function()
+T.test("auto._gate_lint delegates to gates.lint", function()
+	local auto = require("dwight.auto")
+	T.assert(auto._gate_lint == gates.lint, "should be same function")
+end)
+
+T.test("auto._verification_gate delegates to gates.run_all", function()
+	local auto = require("dwight.auto")
+	T.assert(auto._verification_gate == gates.run_all, "should be same function")
+end)
+
+io.write("── pipeline function signature ──\n")
+
+T.test("run_all accepts baseline_coverage", function()
 	-- Verify the function accepts 4 args (status, callback, baseline_failures, baseline_coverage)
-	local info = debug.getinfo(auto._verification_gate)
+	local info = debug.getinfo(gates.run_all)
 	-- nparams may not be reliable across Lua versions, just verify it's callable
 	T.assert(info ~= nil, "should be inspectable")
 end)

@@ -15,13 +15,10 @@
           lua
           lua-language-server
           stylua
-          # mdformat
+          go
         ];
         shellHook = ''
           echo "Welcome to dwight.nvim"
-          # if [ -z "$TMUX" ]; then
-          #   exec tmux new-session -A -s dwight.nvim
-          # fi
         '';
       };
     };

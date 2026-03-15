@@ -231,7 +231,7 @@ function M.show(target)
 		string.format("%.0f", success_rate),
 		fmt_tkn((lt.chars_sent or 0) + (lt.chars_received or 0))
 	)
-	lines[#lines + 1] = "  │ invocations │  │  total cost │  │success rate│  │total tokens│"
+	lines[#lines + 1] = "  │ invocations │  │  total cost │  │success rate │  │total tokens │"
 	lines[#lines + 1] =
 		"  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘"
 	lines[#lines + 1] = ""
@@ -304,14 +304,7 @@ function M.show(target)
 			"Rate",
 			"Tokens"
 		)
-		lines[#lines + 1] = "  " .. string.rep("─", 72)
-
-		local max_feat_cost = 0
-		for _, f in ipairs(stats.features) do
-			if f.cost > max_feat_cost then
-				max_feat_cost = f.cost
-			end
-		end
+		lines[#lines + 1] = "  " .. string.rep("─", 69)
 
 		for _, f in ipairs(stats.features) do
 			local rate = f.success + f.failure > 0
@@ -319,15 +312,14 @@ function M.show(target)
 				or "–"
 			local tokens = fmt_tkn((f.chars_sent or 0) + (f.chars_received or 0))
 			lines[#lines + 1] = string.format(
-				"  $%-19s %6s %8s %6d %5d %7s %10s  %s",
+				"  $%-19s %6s %8s %6d %5d %8s %10s",
 				f.name:sub(1, 19),
 				fmt_num(f.invocations),
 				fmt_cost(f.cost),
 				f.success,
 				f.failure,
 				rate,
-				tokens,
-				bar(f.cost, max_feat_cost, 10)
+				tokens
 			)
 		end
 		lines[#lines + 1] = ""
@@ -508,7 +500,7 @@ function M.show_features()
 
 	local lines = {
 		"╔══════════════════════════════════════════════════════════════════╗",
-		"║                     Feature Telemetry                           ║",
+		"║                     Feature Telemetry                            ║",
 		"╚══════════════════════════════════════════════════════════════════╝",
 		"",
 	}
