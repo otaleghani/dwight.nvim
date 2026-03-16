@@ -56,4 +56,70 @@ function M.oneline(s)
 	return tostring(s):gsub("\n", " "):gsub("\r", "")
 end
 
+--------------------------------------------------------------------
+-- Shared TUI helpers
+--------------------------------------------------------------------
+
+--- Define shared highlight groups. Idempotent — safe to call from anywhere.
+function M.ensure_highlights()
+	vim.cmd([[
+    highlight default link DwightOK DiagnosticOk
+    highlight default link DwightFail DiagnosticError
+    highlight default link DwightSkip Comment
+    highlight default link DwightDim NonText
+    highlight default link DwightHeader Title
+    highlight default link DwightSpin DiagnosticInfo
+    highlight default link DwightWarn DiagnosticWarn
+    highlight default link DwightCost Special
+  ]])
+end
+
+--- Return a TUI header string: "── Text ────────────"
+--- @param text string
+--- @param width? integer default 60
+--- @return string
+function M.tui_header(text, width)
+	width = width or 60
+	local prefix = "── " .. text .. " "
+	local pad = math.max(0, width - #prefix)
+	return prefix .. string.rep("─", pad)
+end
+
+--- Apply shared TUI syntax highlighting to a buffer.
+--- @param buf integer
+function M.apply_tui_syntax(buf)
+	M.ensure_highlights()
+	pcall(function()
+		api.nvim_buf_call(buf, function()
+			vim.cmd([[
+        syntax match DwightHeader /^──.*$/
+        syntax match DwightOK /.*●.*/
+        syntax match DwightFail /.*✗.*/
+        syntax match DwightSkip /.*○.*/
+        syntax match DwightCost /\$[0-9,.]\+/
+        syntax match DwightOK /[█░]\+/
+      ]])
+		end)
+	end)
+end
+
+--- Configure a window for the TUI style (folds, no line numbers, etc.).
+--- @param win integer
+--- @param opts? { foldlevel?: integer }
+function M.setup_tui_win(win, opts)
+	opts = opts or {}
+	if not api.nvim_win_is_valid(win) then
+		return
+	end
+	vim.wo[win].number = false
+	vim.wo[win].relativenumber = false
+	vim.wo[win].signcolumn = "no"
+	vim.wo[win].wrap = true
+	vim.wo[win].cursorline = false
+	vim.wo[win].foldmethod = "marker"
+	vim.wo[win].foldmarker = "▸{{{,▸}}}"
+	vim.wo[win].foldenable = true
+	vim.wo[win].foldlevel = opts.foldlevel or 0
+end
+
 return M

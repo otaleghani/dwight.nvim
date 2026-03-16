@@ -8,9 +8,9 @@ local M = {}
 --------------------------------------------------------------------
 
 M.SEV = {
-	CRITICAL = { icon = "🔴", label = "CRITICAL", sort = 1 },
-	WARN = { icon = "🟡", label = "WARN", sort = 2 },
-	INFO = { icon = "🔵", label = "INFO", sort = 3 },
+	CRITICAL = { icon = "✗", label = "CRITICAL", sort = 1 },
+	WARN = { icon = "○", label = "WARN", sort = 2 },
+	INFO = { icon = "·", label = "INFO", sort = 3 },
 }
 
 --------------------------------------------------------------------

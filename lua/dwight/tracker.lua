@@ -339,6 +339,7 @@ M._fmt_tkn = fmt_tkn
 --------------------------------------------------------------------
 
 function M.show()
+	local U = require("dwight.util")
 	local data = read_data()
 	local lt = data.lifetime
 	local s = M._session
@@ -349,23 +350,21 @@ function M.show()
 	local backend = cfg.backend or "api"
 
 	local lines = {
-		"╔══════════════════════════════════════════════════╗",
-		"║              Dwight Usage Stats                  ║",
-		"╚══════════════════════════════════════════════════╝",
+		U.tui_header("Dwight Usage Stats", 50),
 		"",
-		"🔧 Backend: " .. backend,
-		"🔧 Current model: " .. current_model,
-		string.format("   Pricing: $%.2f/1M input, $%.2f/1M output", pricing.input, pricing.output),
+		"  Backend: " .. backend,
+		"  Current model: " .. current_model,
+		string.format("  Pricing: $%.2f/1M input, $%.2f/1M output", pricing.input, pricing.output),
 	}
 
 	-- Show model diversity if configured
 	if cfg.test_model or cfg.implement_model then
-		lines[#lines + 1] = "🔀 Model diversity:"
+		lines[#lines + 1] = "  Model diversity:"
 		if cfg.test_model then
-			lines[#lines + 1] = "   Test model (/test, /stub): " .. cfg.test_model
+			lines[#lines + 1] = "    Test model (/test, /stub): " .. cfg.test_model
 		end
 		if cfg.implement_model then
-			lines[#lines + 1] = "   Impl model (/code, /fix): " .. cfg.implement_model
+			lines[#lines + 1] = "    Impl model (/code, /fix): " .. cfg.implement_model
 		end
 	end
 	lines[#lines + 1] = ""
@@ -381,7 +380,7 @@ function M.show()
 	end)
 
 	if #model_list > 0 then
-		lines[#lines + 1] = "── Model Breakdown (lifetime) ──────────────────"
+		lines[#lines + 1] = U.tui_header("Model Breakdown (lifetime)", 50)
 		lines[#lines + 1] =
 			string.format("  %-20s %-10s %5s %8s %8s %8s", "Model", "Backend", "Calls", "Tok In", "Tok Out", "Cost")
 		lines[#lines + 1] = "  " .. string.rep("─", 65)
@@ -423,8 +422,7 @@ function M.show()
 	end
 
 	-- Session summary
-	lines[#lines + 1] =
-		"── This Session ────────────────────────────────"
+	lines[#lines + 1] = U.tui_header("This Session", 50)
 	lines[#lines + 1] = string.format(
 		"  Invocations: %s  |  Tokens: ~%s in, ~%s out  |  Cost: %s",
 		fmt_num(s.invocations),
@@ -468,12 +466,11 @@ function M.show()
 			return a[1] > b[1]
 		end)
 		if #days > 0 then
-			lines[#lines + 1] =
-				"── Daily Cost ──────────────────────────────────"
+			lines[#lines + 1] = U.tui_header("Daily Cost", 50)
 			for i = 1, math.min(7, #days) do
 				local bar_len = math.min(30, math.floor(days[i][2] * 100))
-				local bar = string.rep("█", bar_len)
-				lines[#lines + 1] = string.format("  %s  %8s  %s", days[i][1], fmt_cost(days[i][2]), bar)
+				local cost_bar = string.rep("█", bar_len)
+				lines[#lines + 1] = string.format("  %s  %8s  %s", days[i][1], fmt_cost(days[i][2]), cost_bar)
 			end
 			lines[#lines + 1] = ""
 		end
@@ -481,8 +478,7 @@ function M.show()
 
 	-- By mode
 	if lt.by_mode and not vim.tbl_isempty(lt.by_mode) then
-		lines[#lines + 1] =
-			"── By Mode ─────────────────────────────────────"
+		lines[#lines + 1] = U.tui_header("By Mode", 50)
 		local sorted = {}
 		for k, v in pairs(lt.by_mode) do
 			sorted[#sorted + 1] = { k, v }
@@ -499,7 +495,7 @@ function M.show()
 	end
 
 	-- Reference pricing table (deduplicated by name — short aliases share pricing with full names)
-	lines[#lines + 1] = "── Pricing Reference (per 1M tokens) ───────────"
+	lines[#lines + 1] = U.tui_header("Pricing Reference (per 1M tokens)", 50)
 	lines[#lines + 1] = string.format("  %-24s %8s %8s", "Model", "Input", "Output")
 	lines[#lines + 1] = "  " .. string.rep("─", 42)
 	local price_list = {}
@@ -525,9 +521,8 @@ function M.show()
 			"$" .. string.format("%.2f", p.output)
 		)
 	end
-
 	lines[#lines + 1] = ""
-	lines[#lines + 1] = "💡 Costs are estimates (1 token ≈ 4 chars)"
+	lines[#lines + 1] = "  Costs are estimates (1 token ~ 4 chars)"
 
 	-- Show in floating window
 	local buf = vim.api.nvim_create_buf(false, true)
@@ -536,29 +531,7 @@ function M.show()
 	vim.bo[buf].bufhidden = "wipe"
 	vim.bo[buf].filetype = "dwight_usage"
 
-	-- Syntax highlighting
-	pcall(function()
-		vim.api.nvim_buf_call(buf, function()
-			vim.cmd([[
-        syntax match DwightUsageHeader /^[╔╚║].*$/
-        syntax match DwightUsageSection /^──.*──$/
-        syntax match DwightUsageSep /^  ─\+$/
-        syntax match DwightUsageBar /█\+/
-        syntax match DwightUsageCost /\$[0-9,.]\+/
-        syntax match DwightUsageIcon /[🔧🔀💡📊💰]/
-        syntax match DwightUsageLabel /^\s\+\%(Backend\|Current model\|Pricing\|Test model\|Impl model\|Invocations\|TOTAL\):/
-      ]])
-		end)
-	end)
-
-	-- Apply highlight colors
-	local hl = vim.api.nvim_set_hl
-	hl(0, "DwightUsageHeader", { fg = "#bb9af7", bold = true, default = true })
-	hl(0, "DwightUsageSection", { fg = "#7aa2f7", bold = true, default = true })
-	hl(0, "DwightUsageSep", { fg = "#565f89", default = true })
-	hl(0, "DwightUsageBar", { fg = "#9ece6a", bold = true, default = true })
-	hl(0, "DwightUsageCost", { fg = "#e0af68", default = true })
-	hl(0, "DwightUsageLabel", { fg = "#7dcfff", default = true })
+	U.apply_tui_syntax(buf)
 
 	local width = math.min(70, vim.o.columns - 4)
 	local height = math.min(#lines, vim.o.lines - 4)
@@ -571,7 +544,7 @@ function M.show()
 		col = math.floor((vim.o.columns - width) / 2),
 		style = "minimal",
 		border = require("dwight").config.border,
-		title = " 📊 Usage ",
+		title = " Usage ",
 		title_pos = "center",
 	})
 

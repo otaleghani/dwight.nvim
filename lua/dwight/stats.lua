@@ -198,6 +198,7 @@ function M.show(target)
 		return
 	end
 
+	local U = require("dwight.util")
 	local stats = M.collect()
 	local tracker = require("dwight.tracker")
 	local fmt_cost = tracker._fmt_cost
@@ -209,36 +210,26 @@ function M.show(target)
 	local lines = {}
 
 	-- Header
-	lines[#lines + 1] =
-		"╔══════════════════════════════════════════════════════════════════╗"
-	lines[#lines + 1] = "║                    Dwight Telemetry Dashboard                    ║"
-	lines[#lines + 1] =
-		"╚══════════════════════════════════════════════════════════════════╝"
+	lines[#lines + 1] = U.tui_header("Dwight Telemetry Dashboard", 68)
 	lines[#lines + 1] = ""
 
-	-- Overview cards
+	-- Overview (compact single line replacing card layout)
 	local total_success = (lt.by_status or {}).success or 0
 	local total_fail = ((lt.by_status or {}).error or 0) + ((lt.by_status or {}).parse_fail or 0)
 	local total_tracked = total_success + total_fail
-	local success_rate = total_tracked > 0 and (total_success / total_tracked * 100) or 0
+	local success_rate = total_tracked > 0 and string.format("%.0f", total_success / total_tracked * 100) or "–"
 
-	lines[#lines + 1] =
-		"  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐"
 	lines[#lines + 1] = string.format(
-		"  │ %11s │  │ %11s │  │ %10s%% │  │ %11s │",
+		"  Invocations: %s  |  Cost: %s  |  Success: %s%%  |  Tokens: %s",
 		fmt_num(lt.invocations or 0),
 		fmt_cost(lt.cost or 0),
-		string.format("%.0f", success_rate),
+		success_rate,
 		fmt_tkn((lt.chars_sent or 0) + (lt.chars_received or 0))
 	)
-	lines[#lines + 1] = "  │ invocations │  │  total cost │  │success rate │  │total tokens │"
-	lines[#lines + 1] =
-		"  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘"
 	lines[#lines + 1] = ""
 
 	-- Session summary
-	lines[#lines + 1] =
-		"── Session ─────────────────────────────────────────────────────────"
+	lines[#lines + 1] = U.tui_header("Session", 68)
 	local session_duration = os.time() - (s.started or os.time())
 	local hours = math.floor(session_duration / 3600)
 	local mins = math.floor((session_duration % 3600) / 60)
@@ -255,8 +246,7 @@ function M.show(target)
 
 	-- Daily trend (last 14 days, sparkline-style)
 	if #stats.daily > 0 then
-		lines[#lines + 1] =
-			"── Daily Trend (last 14 days) ──────────────────────────────────────"
+		lines[#lines + 1] = U.tui_header("Daily Trend (last 14 days)", 68)
 		local max_cost = 0
 		local max_inv = 0
 		local show_days = math.min(14, #stats.daily)
@@ -292,8 +282,7 @@ function M.show(target)
 
 	-- Feature breakdown
 	if #stats.features > 0 then
-		lines[#lines + 1] =
-			"── Per-Feature Stats ───────────────────────────────────────────────"
+		lines[#lines + 1] = U.tui_header("Per-Feature Stats", 68)
 		lines[#lines + 1] = string.format(
 			"  %-20s %6s %8s %6s %5s %8s %10s",
 			"Feature",
@@ -327,8 +316,7 @@ function M.show(target)
 
 	-- Mode breakdown
 	if #stats.modes > 0 then
-		lines[#lines + 1] =
-			"── By Mode ─────────────────────────────────────────────────────────"
+		lines[#lines + 1] = U.tui_header("By Mode", 68)
 		local max_mode = stats.modes[1] and stats.modes[1].count or 1
 		local mode_lines = {}
 		for _, m in ipairs(stats.modes) do
@@ -353,11 +341,10 @@ function M.show(target)
 
 	-- Model breakdown (from log modes for session)
 	if next(stats.log_modes) then
-		lines[#lines + 1] =
-			"── Session Log Summary ─────────────────────────────────────────────"
+		lines[#lines + 1] = U.tui_header("Session Log Summary", 68)
 		local ls = stats.log_summary
 		lines[#lines + 1] = string.format(
-			"  Total: %d  |  ✅ %d success  |  ❌ %d error  |  ⚠️ %d parse_fail  |  🔄 %d running",
+			"  Total: %d  |  ● %d success  |  ✗ %d error  |  %d parse_fail  |  %d running",
 			ls.total,
 			ls.success,
 			ls.error,
@@ -383,7 +370,7 @@ function M.show(target)
 			table.sort(risky_modes, function(a, b)
 				return a.rate > b.rate
 			end)
-			lines[#lines + 1] = "  ⚠️  Modes with failures this session:"
+			lines[#lines + 1] = "  Modes with failures this session:"
 			for _, rm in ipairs(risky_modes) do
 				lines[#lines + 1] =
 					string.format("     %-25s %d/%d failed (%.0f%%)", rm.mode, rm.failure, rm.total, rm.rate)
@@ -395,8 +382,7 @@ function M.show(target)
 	-- Time savings estimate
 	local total_tokens = (lt.chars_sent or 0) + (lt.chars_received or 0)
 	if total_tokens > 0 then
-		lines[#lines + 1] =
-			"── Estimated Impact ────────────────────────────────────────────────"
+		lines[#lines + 1] = U.tui_header("Estimated Impact", 68)
 		-- Rough heuristic: 1 token ≈ 0.75 words, avg developer types 40 words/min,
 		-- AI output that would take ~3x longer to write manually
 		local words_generated = (lt.chars_received or 0) / 4 * 0.75
@@ -413,8 +399,7 @@ function M.show(target)
 	end
 
 	-- Footer
-	lines[#lines + 1] =
-		"── Actions ─────────────────────────────────────────────────────────"
+	lines[#lines + 1] = U.tui_header("Actions", 68)
 	lines[#lines + 1] = "  :DwightStats features    Per-feature detail"
 	lines[#lines + 1] = "  :DwightStats export      Export to .dwight/stats-export.json"
 	lines[#lines + 1] = "  :DwightStats csv         Export to .dwight/stats-export.csv"
@@ -430,32 +415,7 @@ function M.show(target)
 	vim.bo[buf].bufhidden = "wipe"
 	vim.bo[buf].filetype = "dwight_stats"
 
-	-- Syntax highlights
-	pcall(function()
-		api.nvim_buf_call(buf, function()
-			vim.cmd([[
-        syntax match DwightStatsHeader /^[╔╚║].*$/
-        syntax match DwightStatsSection /^──.*──$/
-        syntax match DwightStatsSep /^  ─\+$/
-        syntax match DwightStatsBar /[█░]\+/
-        syntax match DwightStatsCost /\$[0-9,.]\+/
-        syntax match DwightStatsFeature /\$[a-z][a-z0-9_-]*/
-        syntax match DwightStatsSuccess /✅/
-        syntax match DwightStatsError /❌/
-        syntax match DwightStatsWarn /⚠️/
-        syntax match DwightStatsBox /[┌┐└┘│─]/
-      ]])
-		end)
-	end)
-
-	local hl = api.nvim_set_hl
-	hl(0, "DwightStatsHeader", { fg = "#bb9af7", bold = true, default = true })
-	hl(0, "DwightStatsSection", { fg = "#7aa2f7", bold = true, default = true })
-	hl(0, "DwightStatsSep", { fg = "#565f89", default = true })
-	hl(0, "DwightStatsBar", { fg = "#9ece6a", default = true })
-	hl(0, "DwightStatsCost", { fg = "#e0af68", default = true })
-	hl(0, "DwightStatsFeature", { fg = "#7dcfff", default = true })
-	hl(0, "DwightStatsBox", { fg = "#565f89", default = true })
+	U.apply_tui_syntax(buf)
 
 	vim.cmd("botright split")
 	local win = api.nvim_get_current_win()
@@ -484,6 +444,7 @@ end
 --------------------------------------------------------------------
 
 function M.show_features()
+	local U = require("dwight.util")
 	local stats = M.collect()
 	local tracker = require("dwight.tracker")
 	local fmt_cost = tracker._fmt_cost
@@ -499,9 +460,7 @@ function M.show_features()
 	end
 
 	local lines = {
-		"╔══════════════════════════════════════════════════════════════════╗",
-		"║                     Feature Telemetry                            ║",
-		"╚══════════════════════════════════════════════════════════════════╝",
+		U.tui_header("Feature Telemetry", 68),
 		"",
 	}
 
@@ -517,8 +476,7 @@ function M.show_features()
 	end)
 
 	-- Most expensive features
-	lines[#lines + 1] =
-		"── By Cost (most expensive) ────────────────────────────────────────"
+	lines[#lines + 1] = U.tui_header("By Cost (most expensive)", 68)
 	for i, f in ipairs(by_cost) do
 		if i > 10 then
 			break
@@ -542,8 +500,7 @@ function M.show_features()
 	lines[#lines + 1] = ""
 
 	-- Most active features
-	lines[#lines + 1] =
-		"── By Activity (most calls) ────────────────────────────────────────"
+	lines[#lines + 1] = U.tui_header("By Activity (most calls)", 68)
 	for i, f in ipairs(by_calls) do
 		if i > 10 then
 			break
@@ -575,8 +532,7 @@ function M.show_features()
 		table.sort(risky, function(a, b)
 			return a.rate < b.rate
 		end)
-		lines[#lines + 1] =
-			"── ⚠️ Features with Low Success Rate (<80%) ────────────────────────"
+		lines[#lines + 1] = U.tui_header("Features with Low Success Rate (<80%)", 68)
 		for _, r in ipairs(risky) do
 			lines[#lines + 1] =
 				string.format("  $%-20s %.0f%% success (%d failures / %d total)", r.name, r.rate, r.failure, r.total)
@@ -604,6 +560,8 @@ function M.show_features()
 	vim.bo[buf].modifiable = false
 	vim.bo[buf].buftype = "nofile"
 	vim.bo[buf].bufhidden = "wipe"
+
+	U.apply_tui_syntax(buf)
 
 	vim.cmd("botright split")
 	local win = api.nvim_get_current_win()

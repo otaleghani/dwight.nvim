@@ -61,20 +61,11 @@ function M.open()
 
 	M._bufnr = buf
 
-	-- Highlight groups (extmark-based, defined once)
+	-- Shared highlight groups
+	require("dwight.util").ensure_highlights()
+
+	-- Buffer-local syntax matches for the agent status filetype
 	pcall(function()
-		-- Semantic groups for the compact display
-		vim.cmd([[
-      highlight default link DwightOK DiagnosticOk
-      highlight default link DwightFail DiagnosticError
-      highlight default link DwightSkip Comment
-      highlight default link DwightDim NonText
-      highlight default link DwightHeader Title
-      highlight default link DwightSpin DiagnosticInfo
-      highlight default link DwightWarn DiagnosticWarn
-      highlight default link DwightCost Special
-    ]])
-		-- Legacy syntax matches for session log viewer / fallback
 		vim.cmd([[
       syntax match DwightStatusOK /^Done.*/
       syntax match DwightStatusFail /^FAILED.*/
