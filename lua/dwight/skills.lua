@@ -518,10 +518,10 @@ function M._run_claude_code(prompt, callback)
 	local claude_bin = cfg.claude_code_bin or "claude"
 
 	-- -p = print mode: single prompt → single response → exit
+	-- Prompt is piped via stdin (not as CLI arg) to avoid OS arg-length limits.
 	-- Do NOT add --max-turns — it conflicts with -p and causes "Reached max turns" errors
 	local args = {
 		"-p",
-		prompt,
 		"--output-format",
 		"text",
 	}
@@ -551,6 +551,7 @@ function M._run_claude_code(prompt, callback)
 	local stderr_chunks = {}
 	local stdout = uv.new_pipe(false)
 	local stderr = uv.new_pipe(false)
+	local stdin_pipe = uv.new_pipe(false)
 
 	-- Track model
 	pcall(function()
@@ -560,7 +561,7 @@ function M._run_claude_code(prompt, callback)
 	local handle
 	local spawn_opts = {
 		args = args,
-		stdio = { nil, stdout, stderr },
+		stdio = { stdin_pipe, stdout, stderr },
 		cwd = vim.fn.getcwd(),
 	}
 	if spawn_env then
@@ -596,7 +597,7 @@ function M._run_claude_code(prompt, callback)
 				else
 					vim.notify("[dwight] Claude Code error: " .. err_output:sub(1, 200), vim.log.levels.ERROR)
 				end
-				callback("", code)
+				callback(err_output, code)
 				return
 			end
 
@@ -605,6 +606,7 @@ function M._run_claude_code(prompt, callback)
 	end)
 
 	if not handle then
+		stdin_pipe:close()
 		vim.notify(
 			"[dwight] Failed to spawn claude. Is it installed? npm i -g @anthropic-ai/claude-code",
 			vim.log.levels.ERROR
@@ -612,6 +614,17 @@ function M._run_claude_code(prompt, callback)
 		callback("", 1)
 		return
 	end
+
+	-- Write prompt to claude's stdin, then close to signal EOF.
+	stdin_pipe:write(prompt, function(write_err)
+		if write_err then
+			stdin_pipe:close()
+			return
+		end
+		stdin_pipe:shutdown(function()
+			stdin_pipe:close()
+		end)
+	end)
 
 	stdout:read_start(function(err, data)
 		if not err and data then

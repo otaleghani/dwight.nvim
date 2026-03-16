@@ -8,7 +8,8 @@
 local M = {}
 
 local api = vim.api
-local _flatten = require("dwight.util").flatten_lines
+local U = require("dwight.util")
+local _flatten = U.flatten_lines
 
 --------------------------------------------------------------------
 -- Session discovery
@@ -145,14 +146,13 @@ local function render_event(event, idx, total, session_start)
 	end
 
 	if etype == "start" then
-		icon = "🚀"
+		icon = "▸"
 		title = "Session Start"
 		lines[#lines + 1] = ""
 		lines[#lines + 1] = "  Backend: " .. (event.backend or "?")
 		if event.task then
 			lines[#lines + 1] = ""
-			lines[#lines + 1] =
-				"  ── Task ──────────────────────────────────────"
+			lines[#lines + 1] = U.tui_header("Task")
 			-- Wrap task text
 			local task = event.task
 			for i = 1, #task, 80 do
@@ -164,40 +164,40 @@ local function render_event(event, idx, total, session_start)
 		local detail = event.detail or ""
 
 		if tool == "bash" or tool == "run_command" or tool == "Bash" then
-			icon = "🔧"
+			icon = "$"
 			title = "Run Command"
 			lines[#lines + 1] = ""
 			lines[#lines + 1] = "  $ " .. detail
 		elseif tool == "read" or tool == "read_file" or tool == "Read" then
-			icon = "📖"
+			icon = "▸"
 			title = "Read File"
 			lines[#lines + 1] = ""
 			lines[#lines + 1] = "  " .. detail
 		elseif tool == "write" or tool == "write_file" or tool == "Write" then
-			icon = "📝"
+			icon = "▸"
 			title = "Write File"
 			lines[#lines + 1] = ""
 			lines[#lines + 1] = "  " .. detail
 		elseif tool == "edit" or tool == "str_replace" or tool == "Edit" or tool == "MultiEdit" then
-			icon = "✏️"
+			icon = "▸"
 			title = "Edit File"
 			lines[#lines + 1] = ""
 			lines[#lines + 1] = "  " .. detail
 		elseif tool == "list" or tool == "list_dir" or tool == "ListDir" then
-			icon = "📂"
+			icon = "▸"
 			title = "List Directory"
 			lines[#lines + 1] = ""
 			lines[#lines + 1] = "  " .. detail
 		elseif tool == "search" or tool == "grep" or tool == "Grep" or tool == "Glob" then
-			icon = "🔍"
+			icon = "▸"
 			title = "Search"
 			lines[#lines + 1] = ""
 			lines[#lines + 1] = "  " .. detail
 		elseif tool == "task_complete" or tool == "TodoComplete" then
-			icon = "✅"
+			icon = "●"
 			title = "Task Complete"
 		else
-			icon = "🔧"
+			icon = "▸"
 			title = "Tool: " .. tool
 			if detail ~= "" then
 				lines[#lines + 1] = ""
@@ -205,7 +205,7 @@ local function render_event(event, idx, total, session_start)
 			end
 		end
 	elseif etype == "cc_tool_result" then
-		icon = event.is_error and "🔴" or "📋"
+		icon = event.is_error and "✗" or "·"
 		title = event.is_error and "Tool Error" or "Tool Result"
 		if event.summary and event.summary ~= "" then
 			lines[#lines + 1] = ""
@@ -215,7 +215,7 @@ local function render_event(event, idx, total, session_start)
 			end
 		end
 	elseif etype == "cc-thought" or etype == "cc_thought" then
-		icon = "💭"
+		icon = "~"
 		title = "Thinking"
 		if event.text and event.text ~= "" then
 			lines[#lines + 1] = ""
@@ -224,7 +224,7 @@ local function render_event(event, idx, total, session_start)
 			end
 		end
 	elseif etype == "cc_usage" then
-		icon = "📊"
+		icon = "·"
 		title = "Token Usage"
 		lines[#lines + 1] = ""
 		local tok_in = event.input_tokens or 0
@@ -235,7 +235,7 @@ local function render_event(event, idx, total, session_start)
 			tok_out >= 1000 and string.format("%.1fk", tok_out / 1000) or tostring(tok_out)
 		)
 	elseif etype == "cc_final_cost" then
-		icon = "💰"
+		icon = "$"
 		title = "Final Cost"
 		lines[#lines + 1] = ""
 		local tok_in = event.input_tokens or 0
@@ -249,7 +249,7 @@ local function render_event(event, idx, total, session_start)
 			lines[#lines + 1] = string.format("  Duration: %.1fs", event.duration_ms / 1000)
 		end
 	elseif etype == "finish" then
-		icon = event.exit_code == 0 and "✅" or "❌"
+		icon = event.exit_code == 0 and "●" or "✗"
 		title = event.exit_code == 0 and "Session Complete" or "Session Failed"
 		lines[#lines + 1] = ""
 		if event.exit_code then
@@ -262,7 +262,7 @@ local function render_event(event, idx, total, session_start)
 			lines[#lines + 1] = "  Output: " .. event.output_len .. " chars"
 		end
 	else
-		icon = "❓"
+		icon = "?"
 		title = etype
 		-- Show all fields
 		for k, v in pairs(event) do
@@ -314,17 +314,14 @@ function M.replay(path)
 	local win = api.nvim_get_current_win()
 	api.nvim_win_set_buf(win, buf)
 	api.nvim_win_set_height(win, math.min(35, math.floor(vim.o.lines * 0.5)))
+	U.setup_tui_win(win, { foldlevel = 99 })
 
 	--- Render the current view into the buffer.
 	local function render()
 		local lines = {}
 
 		-- Header
-		lines[#lines + 1] =
-			"╔══════════════════════════════════════════════════════════════╗"
-		lines[#lines + 1] = string.format("║  🔁 Session Replay: %s", filename:sub(1, 39))
-		lines[#lines + 1] =
-			"╚══════════════════════════════════════════════════════════════╝"
+		lines[#lines + 1] = U.tui_header("Replay: " .. filename:sub(1, 39))
 		lines[#lines + 1] = ""
 
 		-- Progress bar
@@ -339,8 +336,6 @@ function M.replay(path)
 			show_all and "(cumulative)" or "(single step)"
 		)
 		lines[#lines + 1] = ""
-		lines[#lines + 1] =
-			"  ─────────────────────────────────────────────────────────────"
 
 		-- Render events
 		local start_idx = show_all and 1 or current
@@ -370,9 +365,6 @@ function M.replay(path)
 		end
 
 		lines[#lines + 1] = ""
-		lines[#lines + 1] =
-			"  ─────────────────────────────────────────────────────────────"
-		lines[#lines + 1] = ""
 
 		-- Summary stats at current position
 		local tools_so_far = 0
@@ -397,7 +389,7 @@ function M.replay(path)
 
 		-- Keybinding help
 		lines[#lines + 1] = ""
-		lines[#lines + 1] = "  ── Controls ──"
+		lines[#lines + 1] = U.tui_header("Controls")
 		lines[#lines + 1] = "  j/→/l  Next step     k/←/h  Previous step"
 		lines[#lines + 1] = "  J      Next tool     K      Previous tool"
 		lines[#lines + 1] = "  gg     First step    G      Last step"
@@ -420,28 +412,16 @@ function M.replay(path)
 		end)
 	end
 
-	-- Syntax highlights
+	-- Syntax highlights (shared TUI groups + replay-specific)
+	U.apply_tui_syntax(buf)
 	pcall(function()
 		api.nvim_buf_call(buf, function()
 			vim.cmd([[
-        syntax match DwightReplayHeader /^[╔╚║].*$/
-        syntax match DwightReplaySep /^  ─\+$/
-        syntax match DwightReplayBar /[█░]\+/
-        syntax match DwightReplayActive /^  ▶.*/
-        syntax match DwightReplayStep /^   \d\+\./
-        syntax match DwightReplayCmd /^  \$ .*/
-        syntax match DwightReplayPath /^  [^ $].*/
+        syntax match DwightSpin /^  ▶.*/
+        syntax match DwightDim /^  [jJkgGvq].*/
       ]])
 		end)
 	end)
-
-	local hl = api.nvim_set_hl
-	hl(0, "DwightReplayHeader", { fg = "#bb9af7", bold = true, default = true })
-	hl(0, "DwightReplaySep", { fg = "#565f89", default = true })
-	hl(0, "DwightReplayBar", { fg = "#9ece6a", default = true })
-	hl(0, "DwightReplayActive", { fg = "#7dcfff", bold = true, default = true })
-	hl(0, "DwightReplayStep", { fg = "#7aa2f7", default = true })
-	hl(0, "DwightReplayCmd", { fg = "#e0af68", default = true })
 
 	-- Navigation functions
 	local function go_to(idx)
@@ -578,7 +558,7 @@ function M._pick_telescope(sessions, pickers)
 
 	pickers
 		.new({}, {
-			prompt_title = string.format("🔁 Session Replay (%d sessions)", #sessions),
+			prompt_title = string.format("Replay (%d sessions)", #sessions),
 			finder = finders.new_table({
 				results = sessions,
 				entry_maker = function(s)
@@ -647,7 +627,7 @@ function M._pick_fallback(sessions)
 	end
 
 	require("dwight.select").pick(items, {
-		prompt = "🔁 Replay which session?",
+		prompt = "Replay:",
 	}, function(_, idx)
 		if idx then
 			M.replay(sessions[idx].path)

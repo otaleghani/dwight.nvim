@@ -51,21 +51,7 @@ CRITICAL — FILE GROWTH AWARENESS:
     a stateless mock to stateful), this is a STRUCTURAL change. It should be its own step with
     a read action first, not combined with adding test functions.
 
-CRITICAL — HANDLER + ROUTE WIRING IN SAME STEP:
-12. When a sub-task implements HTTP handler functions, it MUST ALSO register the routes/endpoints
-    for those handlers IN THE SAME SUB-TASK. NEVER split "implement handlers" and "register
-    routes" into separate sub-tasks — the tests call the server's ServeHTTP/mux which returns
-    404 for unregistered routes, so the verify step will fail if routes aren't registered.
-    If handlers go in handlers.go and routes are registered in server.go, BOTH files must be
-    edited in the same sub-task.
-
-CRITICAL — TEMPLATE LOADING MUST USE EMBED:
-13. When adding HTML template rendering to a Go web server, ALWAYS use `//go:embed templates/*.html`
-    with `embed.FS` and `template.ParseFS`. NEVER use `template.Must(template.ParseGlob(...))` in
-    a constructor — it panics during tests because the working directory differs. The sub-task
-    description MUST specify embed.FS, not ParseGlob. Example: "Use `//go:embed templates/*.html`
-    with `template.ParseFS` to load templates."
-
+%s
 CRITICAL — FEATURE PRAGMA PROPAGATION:
 14. This project tracks feature boundaries using `@feature:name` pragma comments on line 1 of
     source files. If the <project> context above lists features, ANY sub-task that creates new
@@ -104,6 +90,24 @@ CRITICAL OUTPUT FORMAT RULES:
   the <tasks> XML block containing the actual decomposition.
 - Start your <tasks> block as early as possible in the response.
 ]=]
+
+--- Go-specific decomposition rules, injected only for Go projects.
+M._GO_RULES = [[
+CRITICAL — HANDLER + ROUTE WIRING IN SAME STEP:
+12. When a sub-task implements HTTP handler functions, it MUST ALSO register the routes/endpoints
+    for those handlers IN THE SAME SUB-TASK. NEVER split "implement handlers" and "register
+    routes" into separate sub-tasks — the tests call the server's ServeHTTP/mux which returns
+    404 for unregistered routes, so the verify step will fail if routes aren't registered.
+    If handlers go in handlers.go and routes are registered in server.go, BOTH files must be
+    edited in the same sub-task.
+
+CRITICAL — TEMPLATE LOADING MUST USE EMBED:
+13. When adding HTML template rendering to a Go web server, ALWAYS use `//go:embed templates/*.html`
+    with `embed.FS` and `template.ParseFS`. NEVER use `template.Must(template.ParseGlob(...))` in
+    a constructor — it panics during tests because the working directory differs. The sub-task
+    description MUST specify embed.FS, not ParseGlob. Example: "Use `//go:embed templates/*.html`
+    with `template.ParseFS` to load templates."
+]]
 
 --- Parse decomposition XML into task list.
 --- Returns { { order, title, description, depends_on }, ... }
@@ -252,7 +256,7 @@ function M._decompose(request, callback)
 		if scan.tree and #scan.tree > 0 then
 			for _, line in ipairs(scan.tree) do
 				tree_lines[#tree_lines + 1] = line
-				if #tree_lines >= 60 then
+				if #tree_lines >= 40 then
 					break
 				end
 			end
@@ -283,7 +287,7 @@ function M._decompose(request, callback)
 	local exploration_parts = {}
 	local cwd = vim.fn.getcwd()
 	local total_exploration_chars = 0
-	local MAX_EXPLORATION_CHARS = 20000 -- Cap to avoid prompt bloat
+	local MAX_EXPLORATION_CHARS = 12000 -- Cap to avoid prompt bloat
 
 	--- Read a file if it exists and we have budget, return content or nil.
 	local function explore_file(rel_path)
@@ -301,8 +305,8 @@ function M._decompose(request, callback)
 			return nil
 		end
 		-- Cap individual files
-		if #content > 4000 then
-			content = content:sub(1, 4000) .. "\n... (truncated)"
+		if #content > 2500 then
+			content = content:sub(1, 2500) .. "\n... (truncated)"
 		end
 		total_exploration_chars = total_exploration_chars + #content
 		return content
@@ -372,30 +376,6 @@ function M._decompose(request, callback)
 				end
 			end
 
-			-- Content-based scoring: peek at first 200 bytes to check relevance
-			if best_priority == 0 and not files_seen[line] then
-				pcall(function()
-					local peek_f = io.open(cwd .. "/" .. line, "r")
-					if peek_f then
-						local peek = peek_f:read(500)
-						peek_f:close()
-						if peek then
-							local peek_lower = peek:lower()
-							local keyword_hits = 0
-							for kw in pairs(request_keywords) do
-								if peek_lower:find(kw, 1, true) then
-									keyword_hits = keyword_hits + 1
-								end
-							end
-							if keyword_hits >= 2 then
-								best_priority = 4 + keyword_hits -- scale with relevance
-								best_reason = string.format("content matches %d request keywords", keyword_hits)
-							end
-						end
-					end
-				end)
-			end
-
 			if best_priority > 0 and not files_seen[line] then
 				files_seen[line] = true
 				scored_files[#scored_files + 1] = {
@@ -450,7 +430,17 @@ function M._decompose(request, callback)
 
 	-- Phase 3: Build prompt and call LLM
 	local context = #context_parts > 0 and table.concat(context_parts, "\n\n") or "(no context)"
-	local prompt = string.format(M.DECOMPOSE_PROMPT, request, context)
+
+	-- Inject Go-specific rules only when the project contains Go files
+	local go_rules = ""
+	for _, line in ipairs(tree_lines) do
+		if line:match("%.go$") or line:match("go%.mod$") then
+			go_rules = M._GO_RULES
+			break
+		end
+	end
+
+	local prompt = string.format(M.DECOMPOSE_PROMPT, request, context, go_rules)
 
 	-- Log the decomposition call to DwightLog
 	local log = require("dwight.log")
@@ -484,7 +474,10 @@ function M._decompose(request, callback)
 	require("dwight.skills")._run_llm(prompt, function(raw, code)
 		if code ~= 0 or not raw or vim.trim(raw) == "" then
 			local detail = ""
-			if not raw or vim.trim(raw or "") == "" then
+			if code ~= 0 and raw and vim.trim(raw) ~= "" then
+				-- raw contains stderr on failure (claude_code backend passes it through)
+				detail = ": " .. vim.trim(raw):sub(1, 300)
+			elseif not raw or vim.trim(raw or "") == "" then
 				detail = " (empty response)"
 			end
 			local err_msg = "Decomposition LLM failed (exit " .. tostring(code) .. ")" .. detail
