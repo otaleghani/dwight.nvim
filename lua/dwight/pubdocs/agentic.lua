@@ -247,10 +247,10 @@ function M._run_docs_pipeline(pages, adapter, fw, opts)
 	vim.fn.mkdir(docs_dir .. "/features", "p")
 
 	status.start_session(string.format("DwightDocs: %d pages [%s]", total, fw))
-	status.append(string.format("📄 Generating %d documentation pages", total))
-	status.append(string.format("   Framework: %s → %s/", fw, docs_dir))
+	status.append_hl(string.format("Generating %d documentation pages", total), "DwightHeader")
+	status.append_hl(string.format("  Framework: %s → %s/", fw, docs_dir), "DwightDim")
 	if link_style ~= "markdown" then
-		status.append(string.format("   Link style: %s (preserving existing format)", link_style))
+		status.append_hl(string.format("  Link style: %s", link_style), "DwightDim")
 	end
 	status.append("")
 
@@ -277,14 +277,8 @@ function M._run_docs_pipeline(pages, adapter, fw, opts)
 			concept = "💡",
 		})[page.page_type] or "📄"
 
-		status.append(
-			string.format(
-				"── Page %d/%d ──────────────────────────────────",
-				idx,
-				total
-			)
-		)
-		status.append(string.format("  %s %s — %s", icon, page.path, page.title))
+		status.append_hl(string.format("── Page %d/%d: %s", idx, total, page.title), "DwightHeader")
+		status.append_hl(string.format("  %s", page.path), "DwightDim")
 
 		local prompt = M.build_page_agent_prompt(page, pages, adapter, fw, link_style)
 
@@ -297,16 +291,15 @@ function M._run_docs_pipeline(pages, adapter, fw, opts)
 					local full_path = docs_dir .. "/" .. page.path
 					if success and vim.fn.filereadable(full_path) == 1 then
 						generated = generated + 1
-						status.append(string.format("  ✅ %s written", page.path))
+						status.append_hl(string.format("  ● %s written", page.path), "DwightOK")
 					else
 						errors[#errors + 1] = page.path
 						if success then
-							status.append(string.format("  ⚠️  Agent finished but %s was not created", page.path))
+							status.append_hl(string.format("  ✗ %s not created", page.path), "DwightWarn")
 						else
-							status.append(string.format("  ❌ Agent failed for %s", page.path))
+							status.append_hl(string.format("  ✗ %s failed", page.path), "DwightFail")
 						end
 					end
-					status.append("")
 
 					-- Continue to next page
 					next_page()
@@ -324,20 +317,16 @@ function M._docs_post_generate(pages, adapter, fw, generated, errors, status)
 	local scan = require("dwight.pubdocs.scan")
 	local docs_dir = adapter.docs_dir()
 
-	status.append(
-		"═══════════════════════════════════════════════"
-	)
-	status.append("  📄 Post-Generation")
-	status.append(
-		"═══════════════════════════════════════════════"
-	)
+	status.append("")
+	status.append(string.rep("═", 40))
+	status.append_hl("  Post-Generation", "DwightHeader")
 
 	-- Generate navigation metadata
 	local nav_files = {}
 	pcall(function()
 		nav_files = adapter.write_nav(pages, docs_dir)
 		if #nav_files > 0 then
-			status.append(string.format("  📋 Generated %d navigation file(s)", #nav_files))
+			status.append_hl(string.format("  ● %d navigation file(s)", #nav_files), "DwightDim")
 		end
 	end)
 
@@ -466,12 +455,14 @@ function M._docs_post_generate(pages, adapter, fw, generated, errors, status)
 	end)
 
 	if #broken_links > 0 then
-		status.append(string.format("  ⚠️  %d broken link(s) found:", #broken_links))
+		status.append_hl(string.format("  ✗ %d broken link(s)", #broken_links), "DwightWarn")
+		local link_lines = {}
 		for _, bl in ipairs(broken_links) do
-			status.append("    " .. bl.text)
+			link_lines[#link_lines + 1] = bl.text
 		end
+		status.append_fold("    ▸ Broken links", link_lines)
 	else
-		status.append("  ✅ All links verified")
+		status.append_hl("  ● All links verified", "DwightOK")
 	end
 
 	-- Build quickfix
@@ -524,21 +515,17 @@ function M._docs_post_generate(pages, adapter, fw, generated, errors, status)
 
 	-- Summary
 	status.append("")
-	status.append(
-		"═══════════════════════════════════════════════"
-	)
+	status.append(string.rep("═", 40))
 	if #errors == 0 then
-		status.append(string.format("  ✅ All %d pages generated successfully!", generated))
+		status.append_hl(string.format("  ● All %d pages generated", generated), "DwightOK")
 	else
-		status.append(string.format("  📄 %d/%d pages generated, %d failed", generated, #pages, #errors))
+		status.append_hl(string.format("  %d/%d pages generated, %d failed", generated, #pages, #errors), "DwightWarn")
 	end
 	if #broken_links > 0 then
-		status.append(string.format("  ⚠️  %d broken link(s) — fix manually or re-run", #broken_links))
+		status.append_hl(string.format("  %d broken link(s)", #broken_links), "DwightWarn")
 	end
-	status.append("  Run :DwightDocsBrowse to review")
-	status.append(
-		"═══════════════════════════════════════════════"
-	)
+	status.append_hl("  :DwightDocsBrowse to review", "DwightDim")
+	status.append(string.rep("═", 40))
 
 	vim.notify(
 		string.format(

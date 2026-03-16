@@ -365,7 +365,7 @@ function M.show()
 			lines[#lines + 1] = "   Test model (/test, /stub): " .. cfg.test_model
 		end
 		if cfg.implement_model then
-			lines[#lines + 1] = "   Impl model (/code, /implement): " .. cfg.implement_model
+			lines[#lines + 1] = "   Impl model (/code, /fix): " .. cfg.implement_model
 		end
 	end
 	lines[#lines + 1] = ""

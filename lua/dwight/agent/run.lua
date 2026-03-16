@@ -172,9 +172,51 @@ function M._run_agentic(request, opts)
 	local session_id = os.date("%Y%m%d-%H%M%S")
 	local safe_name = request:sub(1, 30):gsub("[^%w_%-]", "-"):gsub("%-+", "-")
 
-	-- Track tool activity for richer status display
-	local tool_counts = { read = 0, write = 0, edit = 0, run = 0 }
-	local last_tool_type = nil
+	-- Track tool activity for compact display
+	local tool_counts = { reads = 0, writes = 0, edits = 0, cmds = 0, searches = 0, other = 0 }
+	local tool_log = {} -- detailed tool descriptions for foldable section
+
+	local function classify_tool(desc)
+		if desc:match("^Read ") then
+			return "reads"
+		elseif desc:match("^Write ") then
+			return "writes"
+		elseif desc:match("^Edit ") then
+			return "edits"
+		elseif desc:match("^%$ ") or desc:match("^Tool: Bash") then
+			return "cmds"
+		elseif desc:match("^Search ") or desc:match("^List ") then
+			return "searches"
+		else
+			return "other"
+		end
+	end
+
+	local function fmt_tools()
+		local parts = {}
+		if tool_counts.reads > 0 then
+			parts[#parts + 1] = tool_counts.reads .. "r"
+		end
+		if tool_counts.writes > 0 then
+			parts[#parts + 1] = tool_counts.writes .. "w"
+		end
+		if tool_counts.edits > 0 then
+			parts[#parts + 1] = tool_counts.edits .. "e"
+		end
+		if tool_counts.cmds > 0 then
+			parts[#parts + 1] = tool_counts.cmds .. "cmd"
+		end
+		if tool_counts.searches > 0 then
+			parts[#parts + 1] = tool_counts.searches .. "s"
+		end
+		if tool_counts.other > 0 then
+			parts[#parts + 1] = tool_counts.other .. "?"
+		end
+		if #parts == 0 then
+			return ""
+		end
+		return " [" .. table.concat(parts, " ") .. "]"
+	end
 
 	-- Snapshot git HEAD before execution for post-session diff
 	local pre_head = nil
@@ -190,59 +232,47 @@ function M._run_agentic(request, opts)
 		context = context,
 
 		on_status = function(text)
-			if #text > 15 then
+			-- Only surface structured events (test/build results) in the buffer
+			if text:match("Tests? FAILED") or text:match("Build failed") then
 				status_mod.stop_spin()
-				status_mod.append(text:sub(1, 500))
+				status_mod.append_hl("  " .. text:sub(1, 200), "DwightFail")
+				status_mod.spin("working..." .. fmt_tools() .. "  " .. (os.time() - started) .. "s")
+			elseif text:match("Tests? passed") or text:match("Build OK") then
+				status_mod.stop_spin()
+				status_mod.append_hl("  " .. text:sub(1, 200), "DwightOK")
+				status_mod.spin("working..." .. fmt_tools() .. "  " .. (os.time() - started) .. "s")
 			end
+			-- Always log to session_log
+			pcall(function()
+				if #text > 5 then
+					require("dwight.session_log").append(text:sub(1, 500))
+				end
+			end)
 		end,
 
 		on_tool = function(desc)
-			-- Categorize and count tool usage
-			local tool_type = desc:match("^Read ") and "read"
-				or desc:match("^Write ") and "write"
-				or desc:match("^Edit ") and "edit"
-				or desc:match("^%$ ") and "run"
-				or desc:match("^Search ") and "search"
-				or desc:match("^List ") and "list"
-				or "other"
-
-			if tool_counts[tool_type] then
-				tool_counts[tool_type] = tool_counts[tool_type] + 1
-			else
-				tool_counts[tool_type] = 1
-			end
-
-			-- Persist every tool call as a permanent indented line
-			status_mod.stop_spin()
-			status_mod.append("  " .. desc)
-
-			-- Spin with generic working message
-			status_mod.spin("working...")
+			-- Increment counter and update spinner in-place
+			local key = classify_tool(desc)
+			tool_counts[key] = tool_counts[key] + 1
+			tool_log[#tool_log + 1] = desc:sub(1, 120)
+			status_mod.spin("working..." .. fmt_tools() .. "  " .. (os.time() - started) .. "s")
+			-- Log detail to session_log
+			pcall(function()
+				require("dwight.session_log").append("  " .. desc)
+			end)
 		end,
 
 		on_complete = function(success, data)
 			local duration = os.time() - started
 			status_mod.stop_spin()
 
-			-- Show tool usage summary before final status
-			local tool_parts = {}
-			if tool_counts.read > 0 then
-				tool_parts[#tool_parts + 1] = tool_counts.read .. " reads"
-			end
-			if tool_counts.write > 0 then
-				tool_parts[#tool_parts + 1] = tool_counts.write .. " writes"
-			end
-			if tool_counts.edit > 0 then
-				tool_parts[#tool_parts + 1] = tool_counts.edit .. " edits"
-			end
-			if tool_counts.run > 0 then
-				tool_parts[#tool_parts + 1] = tool_counts.run .. " commands"
-			end
-			if (tool_counts.search or 0) > 0 then
-				tool_parts[#tool_parts + 1] = tool_counts.search .. " searches"
-			end
-			if #tool_parts > 0 then
-				status_mod.append("Tool usage: " .. table.concat(tool_parts, ", "))
+			-- Foldable detail section with all tool calls
+			if #tool_log > 0 then
+				local total_tools = 0
+				for _, v in pairs(tool_counts) do
+					total_tools = total_tools + v
+				end
+				status_mod.append_fold(string.format("  ▸ Details (%d tool calls)", total_tools), tool_log)
 			end
 
 			status_mod.end_session(success, duration)

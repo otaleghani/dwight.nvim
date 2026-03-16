@@ -46,37 +46,41 @@ function M._show_post_diff(status_mod, pre_head)
 		return
 	end
 
-	if using_worktree then
-		status_mod.append("")
-		status_mod.append("Uncommitted changes:")
-	else
-		status_mod.append("")
-		status_mod.append("Changes since session start:")
-	end
+	status_mod.append("")
+	local changes_header = using_worktree and "Uncommitted changes" or "Changes since session start"
+	status_mod.append_hl(changes_header, "DwightHeader")
 
-	-- Show compact diff stat (tracked changes)
+	-- Compact diff stat (tracked changes) — fold if many lines
 	if has_stat then
-		local line_count = 0
+		local stat_lines = {}
 		for line in stat:gmatch("[^\n]+") do
-			if line_count < 15 then
-				status_mod.append("  " .. line)
-			end
-			line_count = line_count + 1
+			stat_lines[#stat_lines + 1] = line
 		end
-		if line_count > 15 then
-			status_mod.append(string.format("  ... and %d more files", line_count - 15))
+		if #stat_lines <= 5 then
+			for _, line in ipairs(stat_lines) do
+				status_mod.append_hl("  " .. line, "DwightDim")
+			end
+		else
+			-- Show just the summary line, fold the rest
+			local last_line = stat_lines[#stat_lines]
+			status_mod.append_hl("  " .. vim.trim(last_line), "DwightDim")
+			status_mod.append_fold(string.format("  ▸ %d files changed", #stat_lines - 1), stat_lines)
 		end
 	end
 
-	-- Show new untracked files
+	-- New untracked files
 	if has_new then
-		for i, fname in ipairs(untracked_files) do
-			if i <= 10 then
-				status_mod.append("  " .. fname .. " (new)")
+		if #untracked_files <= 5 then
+			for _, fname in ipairs(untracked_files) do
+				status_mod.append_hl("  + " .. fname, "DwightOK")
 			end
-		end
-		if #untracked_files > 10 then
-			status_mod.append(string.format("  ... and %d more new files", #untracked_files - 10))
+		else
+			status_mod.append_hl(string.format("  + %d new files", #untracked_files), "DwightOK")
+			local new_file_lines = {}
+			for _, fname in ipairs(untracked_files) do
+				new_file_lines[#new_file_lines + 1] = fname
+			end
+			status_mod.append_fold("  ▸ New files", new_file_lines)
 		end
 	end
 
@@ -141,8 +145,8 @@ function M._show_post_diff(status_mod, pre_head)
 		vim.fn.setqflist({}, "a", { title = "Dwight: " .. #qf_items .. " file(s) changed" })
 
 		status_mod.append("")
-		status_mod.append(string.format("Quickfix: %d file(s) — :copen to review", #qf_items))
-		status_mod.append(":DwightDiffReview — full unified diff in a tab")
+		status_mod.append_hl(string.format("Quickfix: %d file(s) — :copen to review", #qf_items), "DwightCost")
+		status_mod.append_hl(":DwightDiffReview — full unified diff in a tab", "DwightDim")
 
 		-- Auto-open quickfix (non-blocking)
 		vim.defer_fn(function()

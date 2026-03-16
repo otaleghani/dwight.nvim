@@ -365,125 +365,6 @@ Add detailed explanatory comments to the content below:
 ]=] .. SCOPE,
 	},
 
-	-- AGENT-SPECIFIC MODES (intentional roles for agent retries and step execution)
-
-	implement = {
-		name = "Implement",
-		icon = "🔨",
-		context = "code",
-		description = "Make tests pass — sees tests, writes source",
-		is_multi = true,
-		role = "implement",
-		task = [=[
-Your SOLE job is to make the failing tests pass. You are given the test file(s) as context.
-
-1. Read the test assertions carefully to understand the EXACT expected behavior.
-2. Implement the MINIMUM code needed to make all tests pass.
-3. Match function signatures, types, and return values EXACTLY as the tests expect.
-4. Handle edge cases that tests check for.
-5. Do NOT modify any test files. Only write/edit source files.
-6. If a test imports a symbol, that symbol MUST exist in your implementation.
-
-If the implementation requires changes in multiple files, use the multi-file output format.
-]=] .. SCOPE .. MULTI_FILE_RULES,
-	},
-
-	fix_build = {
-		name = "Fix Build",
-		icon = "🔧",
-		context = "code",
-		description = "Fix compilation errors only — minimal changes",
-		role = "fix_build",
-		task = [=[
-Fix the BUILD/COMPILATION errors shown in the error output. Make ONLY the minimum changes
-needed to make the code compile. Do NOT:
-- Change any logic or behavior
-- Add new features or tests
-- Refactor or reorganize code
-- Fix test failures (only compilation errors)
-
-Common build errors to fix:
-- Missing imports/requires
-- Type mismatches
-- Undefined variables/functions
-- Syntax errors
-- Wrong number of arguments
-]=] .. SCOPE,
-	},
-
-	fix_test = {
-		name = "Fix Test",
-		icon = "🧪",
-		context = "code",
-		description = "Fix specific test failures — sees failing test + error",
-		is_multi = true,
-		role = "fix_test",
-		task = [=[
-A specific test is FAILING. Fix the IMPLEMENTATION code (not the test) to make it pass.
-
-The error output shows which test failed and why. Focus on:
-1. Read the failing test name and assertion to understand what's expected.
-2. Read the error message to understand what actually happened.
-3. Fix the implementation to produce the expected result.
-4. Do NOT modify test files unless the test itself has a bug (very rare).
-5. Make the minimum change needed — don't refactor unrelated code.
-
-If the fix requires changes in multiple files, use the multi-file output format.
-]=] .. SCOPE .. MULTI_FILE_RULES,
-	},
-
-	fix_smoke = {
-		name = "Fix Smoke",
-		icon = "🔥",
-		context = "code",
-		description = "Fix runtime failures — unit tests pass but app crashes",
-		is_multi = true,
-		role = "fix_smoke",
-		task = [=[
-Unit tests PASS but the application FAILS at runtime. This is a WIRING problem.
-
-The smoke test output shows the runtime error. Focus on:
-1. Missing initialization: migrations not called, setup functions skipped
-2. Missing wiring: dependencies not connected in main/init
-3. Interface not satisfied: concrete type never created in production code path
-4. Import missing in production: package used in tests but not imported in main
-5. Configuration gap: function needs parameter never passed in real call chain
-6. Entry point issues: main() doesn't call the right functions
-
-Fix the PRODUCTION code path (main.go, init.py, index.ts, etc.), NOT the tests.
-You MUST trace from the entry point to find where the wiring is broken.
-
-If the fix requires changes in multiple files, use the multi-file output format.
-]=] .. SCOPE .. MULTI_FILE_RULES,
-	},
-
-	wire = {
-		name = "Wire",
-		icon = "🔌",
-		context = "code",
-		description = "Connect components — wire dependencies in main/init",
-		is_multi = true,
-		role = "wire",
-		task = [=[
-Wire components together. You are given multiple source files that define types, interfaces,
-and functions. Your job is to connect them in the application's entry point.
-
-For each component:
-1. Verify it is imported in the entry point
-2. Verify it is initialized (constructors called, migrations run)
-3. Verify it is connected to its dependencies (injected, passed as parameter)
-4. Verify the initialization ORDER is correct (dependencies before dependents)
-
-Common wiring patterns:
-- Go: AutoMigrate in Open(), handler registration in main()
-- Python: app.register_blueprint(), db.init_app()
-- JS/TS: middleware registration, route mounting, service injection
-- Rust: .configure(), .service(), .wrap()
-
-Fix ONLY the wiring/initialization code. Do NOT change business logic.
-]=] .. SCOPE .. MULTI_FILE_RULES,
-	},
-
 	docs = {
 		name = "Docs",
 		icon = "📄",
@@ -536,16 +417,6 @@ Output clean Markdown. Use headers, code blocks, and callout blocks.
 function M.get(name)
 	if name == "fix_bugs" then
 		name = "fix"
-	end
-
-	-- Agent mode aliases with hyphens
-	local aliases = {
-		["fix-build"] = "fix_build",
-		["fix-test"] = "fix_test",
-		["fix-smoke"] = "fix_smoke",
-	}
-	if aliases[name] then
-		name = aliases[name]
 	end
 
 	-- Backwards compat: /tdd → /code with inject_run_output
@@ -631,12 +502,7 @@ function M.resolve_model(mode_name)
 	-- Implementation/fix modes → implement_model
 	local impl_modes = {
 		code = true,
-		implement = true,
 		fix = true,
-		fix_build = true,
-		fix_test = true,
-		fix_smoke = true,
-		wire = true,
 	}
 	if impl_modes[mode_name] and cfg.implement_model then
 		return cfg.implement_model

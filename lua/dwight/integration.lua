@@ -591,14 +591,14 @@ function M.post_session(request, sessions, status)
 		local oversized = split.audit()
 		if #oversized > 0 then
 			status.append("")
-			status.append("⚠️  Feature size warnings:")
+			local warning_lines = {}
 			for _, r in ipairs(oversized) do
 				local a = r.analysis
-				status.append(
-					string.format("  $%s — %s (%d files, %d lines)", r.name, r.reason, a.file_count, a.total_lines)
-				)
+				warning_lines[#warning_lines + 1] =
+					string.format("$%s — %s (%d files, %d lines)", r.name, r.reason, a.file_count, a.total_lines)
 			end
-			status.append("  → Run :DwightSplitFeature to split large features")
+			status.append_fold(string.format("  ▸ %d feature size warning(s)", #oversized), warning_lines)
+			status.append_hl("  :DwightSplitFeature to split", "DwightDim")
 		end
 	end)
 
@@ -646,27 +646,25 @@ function M.post_session(request, sessions, status)
 
 	if #cf_list > 0 then
 		status.append("")
-		status.append("📋 Suggested follow-ups:")
-		status.append(string.format("  Changed features: %s", table.concat(cf_list, ", ")))
-		status.append("  → :DwightAudit <feature>  — check code quality")
-		status.append("  → :DwightDevDocs          — update developer documentation")
+		status.append_hl("Follow-ups:", "DwightHeader")
+		status.append_hl(string.format("  Changed: %s", table.concat(cf_list, ", ")), "DwightDim")
+		status.append_hl("  :DwightAudit / :DwightDevDocs", "DwightDim")
 	end
 
 	-- 3. Suggest squash + smart commit
 	local commit_count = #sessions
 	if commit_count > 1 then
-		status.append("")
-		status.append(string.format("💡 %d checkpoint commits were made. To clean up git history:", commit_count))
-		status.append(string.format("  → :DwightSquash           — squash into one commit with a smart message"))
+		status.append_hl(string.format("  :DwightSquash — squash %d commits", commit_count), "DwightDim")
 	end
 
 	-- 4. If solving a GitHub issue, offer PR
 	pcall(function()
 		local gh = require("dwight.github")
 		if gh._active_issue then
-			status.append("")
-			status.append(string.format("🐙 Solving GitHub issue #%d — ready for PR:", gh._active_issue.number))
-			status.append("  → :DwightPR               — push and create pull request")
+			status.append_hl(
+				string.format("  :DwightPR — create PR for issue #%d", gh._active_issue.number),
+				"DwightCost"
+			)
 		end
 	end)
 end

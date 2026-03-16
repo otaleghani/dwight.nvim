@@ -368,8 +368,8 @@ function M._run_seo_pipeline(pages, all_pages, adapter, fw, merge_groups, link_s
 	local docs_dir = adapter.docs_dir()
 
 	status.start_session(string.format("DwightDocs --seo: %d pages [%s]", total, fw))
-	status.append(string.format("🔍 Optimizing %d documentation pages for SEO", total))
-	status.append(string.format("   Link style detected: %s", link_style or "markdown"))
+	status.append_hl(string.format("Optimizing %d pages for SEO", total), "DwightHeader")
+	status.append_hl(string.format("  Link style: %s", link_style or "markdown"), "DwightDim")
 	status.append("")
 
 	local idx = 0
@@ -386,16 +386,10 @@ function M._run_seo_pipeline(pages, all_pages, adapter, fw, merge_groups, link_s
 		local page = pages[idx]
 		local is_thin = page.word_count and page.word_count < THIN_CONTENT_THRESHOLD
 
-		status.append(
-			string.format(
-				"── Page %d/%d ──────────────────────────────────",
-				idx,
-				total
-			)
-		)
-		local extra = is_thin and string.format(" ⚠️ thin (%d words)", page.word_count)
-			or string.format(" (%d words)", page.word_count or 0)
-		status.append(string.format("  🔍 %s — %s%s", page.path, page.title, extra))
+		status.append_hl(string.format("── Page %d/%d: %s", idx, total, page.title), "DwightHeader")
+		local extra = is_thin and string.format(" [thin: %d words]", page.word_count)
+			or string.format(" [%d words]", page.word_count or 0)
+		status.append_hl(string.format("  %s%s", page.path, extra), is_thin and "DwightWarn" or "DwightDim")
 
 		-- Find merge candidates relevant to this page
 		local page_merges = {}
@@ -409,7 +403,7 @@ function M._run_seo_pipeline(pages, all_pages, adapter, fw, merge_groups, link_s
 		if #page_merges > 0 then
 			for _, mg in ipairs(page_merges) do
 				local other = mg.page_a.path == page.path and mg.page_b or mg.page_a
-				status.append(string.format("    → merge candidate: %s (%s)", other.path, mg.reason))
+				status.append_hl(string.format("    merge candidate: %s (%s)", other.path, mg.reason), "DwightDim")
 			end
 		end
 
@@ -423,12 +417,11 @@ function M._run_seo_pipeline(pages, all_pages, adapter, fw, merge_groups, link_s
 				vim.schedule(function()
 					if success and vim.fn.filereadable(page.full_path) == 1 then
 						optimized = optimized + 1
-						status.append(string.format("  ✅ %s optimized", page.path))
+						status.append_hl(string.format("  ● %s optimized", page.path), "DwightOK")
 					else
 						errors[#errors + 1] = page.path
-						status.append(string.format("  ❌ Failed to optimize %s", page.path))
+						status.append_hl(string.format("  ✗ %s failed", page.path), "DwightFail")
 					end
-					status.append("")
 					next_page()
 				end)
 			end,

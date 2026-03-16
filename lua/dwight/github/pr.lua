@@ -171,33 +171,69 @@ IMPORTANT: `mkdir -p .dwight/artifacts` before writing. Do NOT modify any source
 
 		status_mod.open()
 		status_mod.start_session(string.format("PR Review: #%d", number))
-		status_mod.append(string.format("Reviewing PR #%d: %s", number, (pr_data.title or ""):sub(1, 50)))
-		status_mod.append(
+		status_mod.append_hl(string.format("PR #%d: %s", number, (pr_data.title or ""):sub(1, 50)), "DwightHeader")
+		status_mod.append_hl(
 			string.format(
-				"   +%d -%d across %d files",
+				"  +%d -%d across %d files",
 				pr_data.additions or 0,
 				pr_data.deletions or 0,
 				pr_data.changedFiles or 0
-			)
+			),
+			"DwightDim"
 		)
+
+		local pr_tool_counts = { reads = 0, writes = 0, cmds = 0, searches = 0, other = 0 }
+		local pr_tool_log = {}
+		local pr_started = os.time()
+
+		local function pr_fmt_tools()
+			local parts = {}
+			if pr_tool_counts.reads > 0 then
+				parts[#parts + 1] = pr_tool_counts.reads .. "r"
+			end
+			if pr_tool_counts.searches > 0 then
+				parts[#parts + 1] = pr_tool_counts.searches .. "s"
+			end
+			if #parts == 0 then
+				return ""
+			end
+			return " [" .. table.concat(parts, " ") .. "]"
+		end
 
 		agentic.run({
 			task = prompt,
 			on_status = function(text)
-				status_mod.stop_spin()
-				status_mod.append(text)
+				pcall(function()
+					if #text > 5 then
+						require("dwight.session_log").append(text:sub(1, 500))
+					end
+				end)
 			end,
 			on_tool = function(desc)
-				status_mod.spin(desc)
+				local key = desc:match("^Read ") and "reads"
+					or desc:match("^%$ ") and "cmds"
+					or (desc:match("^Search ") or desc:match("^List ")) and "searches"
+					or "other"
+				pr_tool_counts[key] = pr_tool_counts[key] + 1
+				pr_tool_log[#pr_tool_log + 1] = desc:sub(1, 120)
+				status_mod.spin("Reviewing..." .. pr_fmt_tools() .. "  " .. (os.time() - pr_started) .. "s")
 			end,
 			on_complete = function(success)
 				status_mod.stop_spin()
+
+				if #pr_tool_log > 0 then
+					local total_tools = 0
+					for _, v in pairs(pr_tool_counts) do
+						total_tools = total_tools + v
+					end
+					status_mod.append_fold(string.format("  ▸ Details (%d tool calls)", total_tools), pr_tool_log)
+				end
+
 				if not success then
-					status_mod.append("PR review failed")
+					status_mod.append_hl("  ✗ PR review failed", "DwightFail")
 					return
 				end
 
-				-- Parse review result
 				local project = require("dwight.project")
 				local result_path = project.is_initialized() and (project.dir() .. "/artifacts/pr-review.json") or nil
 				local review = nil
@@ -215,10 +251,11 @@ IMPORTANT: `mkdir -p .dwight/artifacts` before writing. Do NOT modify any source
 				end
 
 				if not review then
-					status_mod.append("Agent did not produce structured review")
+					status_mod.append_hl("  ✗ No structured review produced", "DwightWarn")
 					return
 				end
 
+				status_mod.append_hl("  ● Review complete", "DwightOK")
 				M._show_pr_review(pr_data, review)
 			end,
 		})

@@ -81,7 +81,7 @@ Use different models for test-writing vs implementation to reduce blind spots:
 ```lua
 require("dwight").setup({
   test_model = "sonnet",       -- for /test, /stub modes
-  implement_model = "opus",    -- for /code, /implement, /fix modes
+  implement_model = "opus",    -- for /code, /fix modes
 })
 ```
 

@@ -131,8 +131,8 @@ function M._run_update_pipeline(stale_pages, all_pages, adapter, fw, link_style)
 	local docs_dir = adapter.docs_dir()
 
 	status.start_session(string.format("DwightDocs --update: %d pages [%s]", total, fw))
-	status.append(string.format("📄 Updating %d stale documentation pages", total))
-	status.append(string.format("   Link style detected: %s", link_style or "markdown"))
+	status.append_hl(string.format("Updating %d stale documentation pages", total), "DwightHeader")
+	status.append_hl(string.format("  Link style: %s", link_style or "markdown"), "DwightDim")
 	status.append("")
 
 	local idx = 0
@@ -158,21 +158,10 @@ function M._run_update_pipeline(stale_pages, all_pages, adapter, fw, link_style)
 		local entry = stale_pages[idx]
 		local page = entry.page
 
-		status.append(
-			string.format(
-				"── Page %d/%d ──────────────────────────────────",
-				idx,
-				total
-			)
-		)
-		status.append(
-			string.format(
-				"  📝 %s — %s (%d changes, %d days stale)",
-				page.path,
-				page.title,
-				entry.change_count,
-				entry.staleness_days or 0
-			)
+		status.append_hl(string.format("── Page %d/%d: %s", idx, total, page.title), "DwightHeader")
+		status.append_hl(
+			string.format("  %s (%d changes, %d days stale)", page.path, entry.change_count, entry.staleness_days or 0),
+			"DwightDim"
 		)
 
 		local prompt = M.build_update_prompt(
@@ -192,12 +181,11 @@ function M._run_update_pipeline(stale_pages, all_pages, adapter, fw, link_style)
 				vim.schedule(function()
 					if success and vim.fn.filereadable(page.full_path) == 1 then
 						updated = updated + 1
-						status.append(string.format("  ✅ %s updated", page.path))
+						status.append_hl(string.format("  ● %s updated", page.path), "DwightOK")
 					else
 						errors[#errors + 1] = page.path
-						status.append(string.format("  ❌ Failed to update %s", page.path))
+						status.append_hl(string.format("  ✗ %s failed", page.path), "DwightFail")
 					end
-					status.append("")
 					next_page()
 				end)
 			end,

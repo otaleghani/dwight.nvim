@@ -96,27 +96,30 @@ function M.lint(status, callback)
 		return
 	end
 
-	status.append(string.format("  Lint: %s", lint_cmd))
-
 	run_gate_cmd(lint_cmd, 60000, function(code, output)
 		if code == 0 then
-			status.append("  Lint gate passed")
+			status.append_hl("  ● Lint passed", "DwightOK")
 			callback(true, output)
 		else
-			-- Count issues
 			local issue_count = 0
 			for _ in output:gmatch("\n") do
 				issue_count = issue_count + 1
 			end
-			status.append(string.format("  FAILED Lint gate (%s, ~%d issue(s))", lint_bin or "linter", issue_count))
-			local n = 0
+			status.append_hl(
+				string.format("  ✗ Lint failed (%s, ~%d issue(s))", lint_bin or "linter", issue_count),
+				"DwightFail"
+			)
+			-- Fold the lint output
+			local log_lines = {}
 			for line in output:gmatch("[^\n]+") do
-				status.append("    " .. line)
-				n = n + 1
-				if n >= 8 then
-					status.append("    ...")
+				log_lines[#log_lines + 1] = line
+				if #log_lines >= 8 then
+					log_lines[#log_lines + 1] = "..."
 					break
 				end
+			end
+			if #log_lines > 0 then
+				status.append_fold("    ▸ Lint output", log_lines)
 			end
 			callback(false, output)
 		end
@@ -134,14 +137,11 @@ function M.tests(status, callback, baseline_failures)
 		return
 	end
 
-	status.append(string.format("  Tests: %s", test_cmd))
-
 	run_gate_cmd(test_cmd, 120000, function(code, output)
 		if code == 0 then
-			status.append("  Test gate passed")
+			status.append_hl("  ● Tests passed", "DwightOK")
 			callback(true, output)
 		else
-			-- Check if all failures are pre-existing (baseline) failures
 			local new_failures = {}
 			local all_failures = {}
 			for test_name in output:gmatch("%-%-%-% FAIL:%s+(%S+)") do
@@ -152,29 +152,29 @@ function M.tests(status, callback, baseline_failures)
 			end
 
 			if #new_failures == 0 and #all_failures > 0 then
-				status.append(
-					string.format(
-						"  WARN: Test gate: %d pre-existing failure(s), no NEW failures -- passing",
-						#all_failures
-					)
+				status.append_hl(
+					string.format("  ● Tests passed (%d pre-existing failure(s) ignored)", #all_failures),
+					"DwightWarn"
 				)
 				callback(true, output)
 			else
-				status.append("  FAILED Test gate (exit " .. code .. ")")
+				status.append_hl("  ✗ Tests failed (exit " .. code .. ")", "DwightFail")
 				if #new_failures > 0 then
-					status.append(string.format("  %d NEW test failure(s):", #new_failures))
 					for _, name in ipairs(new_failures) do
-						status.append("    - " .. name)
+						status.append_hl("    └ " .. name, "DwightFail")
 					end
 				end
-				local n = 0
+				-- Fold the test output
+				local log_lines = {}
 				for line in output:gmatch("[^\n]+") do
-					status.append("    " .. line)
-					n = n + 1
-					if n >= 10 then
-						status.append("    ...")
+					log_lines[#log_lines + 1] = line
+					if #log_lines >= 10 then
+						log_lines[#log_lines + 1] = "..."
 						break
 					end
+				end
+				if #log_lines > 0 then
+					status.append_fold("    ▸ Test output", log_lines)
 				end
 				callback(false, output)
 			end
@@ -198,39 +198,28 @@ function M.coverage(status, callback, baseline_coverage)
 		return
 	end
 
-	status.append(string.format("  Coverage: %s", cov_info.cmd))
-
 	run_gate_cmd(cov_info.cmd, 180000, function(code, output)
-		-- Coverage command may "fail" if tests fail, but we already tested above.
-		-- Parse coverage regardless of exit code.
 		local new_coverage = cov_info.parse_total(output)
 		if not new_coverage then
-			status.append("  WARN: Coverage gate: couldn't parse coverage -- skipping")
+			status.append_hl("  ● Coverage skipped (couldn't parse)", "DwightWarn")
 			callback(true, output)
 			return
 		end
 
 		local delta = new_coverage - baseline_coverage
-		if delta >= -1.0 then -- allow 1% tolerance for flaky coverage measurement
-			status.append(
-				string.format(
-					"  Coverage gate passed: %.1f%% (baseline %.1f%%, delta %+.1f%%)",
-					new_coverage,
-					baseline_coverage,
-					delta
-				)
-			)
+		if delta >= -1.0 then
+			status.append_hl(string.format("  ● Coverage: %.1f%% (%+.1f%%)", new_coverage, delta), "DwightOK")
 			callback(true, output)
 		else
-			status.append(
+			status.append_hl(
 				string.format(
-					"  FAILED Coverage gate: %.1f%% -> %.1f%% (dropped %.1f%%)",
+					"  ✗ Coverage dropped: %.1f%% → %.1f%% (%.1f%%)",
 					baseline_coverage,
 					new_coverage,
 					-delta
-				)
+				),
+				"DwightFail"
 			)
-			status.append("     Agent's changes reduced test coverage. New code may be untested.")
 			callback(false, output)
 		end
 	end)
@@ -247,22 +236,21 @@ function M.smoke(status, callback)
 		return
 	end
 
-	status.append(string.format("  Smoke: %s", smoke.build))
-
 	-- Step 1: Build
 	run_gate_cmd(smoke.build, 60000, function(build_code, build_output)
 		if build_code ~= 0 then
-			status.append("  FAILED Smoke gate: build failed")
-			local n = 0
+			status.append_hl("  ✗ Smoke failed: build error", "DwightFail")
+			local log_lines = {}
 			for line in build_output:gmatch("[^\n]+") do
-				status.append("    " .. line)
-				n = n + 1
-				if n >= 8 then
-					status.append("    ...")
+				log_lines[#log_lines + 1] = line
+				if #log_lines >= 8 then
+					log_lines[#log_lines + 1] = "..."
 					break
 				end
 			end
-			-- Cleanup
+			if #log_lines > 0 then
+				status.append_fold("    ▸ Build output", log_lines)
+			end
 			if smoke.cleanup then
 				pcall(function()
 					vim.fn.system(smoke.cleanup)
@@ -274,47 +262,44 @@ function M.smoke(status, callback)
 
 		-- Step 2: Run (quick start check)
 		if smoke.run then
-			status.append(string.format("  Smoke: %s", smoke.run))
 			run_gate_cmd(smoke.run, 15000, function(run_code, run_output)
-				-- Cleanup
 				if smoke.cleanup then
 					pcall(function()
 						vim.fn.system(smoke.cleanup)
 					end)
 				end
 
-				-- run_code may be non-zero for --help (some CLIs exit 1 for --help)
-				-- We mainly care that it didn't crash/panic
 				local panicked = run_output:match("panic:")
 					or run_output:match("SIGSEGV")
 					or run_output:match("fatal error:")
 					or run_output:match("Traceback %(most recent")
 					or run_output:match("Error: Cannot find module")
 				if panicked then
-					status.append("  FAILED Smoke gate: app panicked/crashed on startup")
-					local n = 0
+					status.append_hl("  ✗ Smoke failed: app crashed on startup", "DwightFail")
+					local log_lines = {}
 					for line in run_output:gmatch("[^\n]+") do
-						status.append("    " .. line)
-						n = n + 1
-						if n >= 10 then
-							status.append("    ...")
+						log_lines[#log_lines + 1] = line
+						if #log_lines >= 10 then
+							log_lines[#log_lines + 1] = "..."
 							break
 						end
 					end
+					if #log_lines > 0 then
+						status.append_fold("    ▸ Crash output", log_lines)
+					end
 					callback(false, run_output)
 				else
-					status.append("  Smoke gate passed (app builds and starts)")
+					status.append_hl("  ● Smoke passed (builds and starts)", "DwightOK")
 					callback(true, run_output)
 				end
 			end)
 		else
-			-- No run command, build passing is enough
 			if smoke.cleanup then
 				pcall(function()
 					vim.fn.system(smoke.cleanup)
 				end)
 			end
-			status.append("  Smoke gate passed (builds successfully)")
+			status.append_hl("  ● Smoke passed (builds)", "DwightOK")
 			callback(true, build_output)
 		end
 	end)
@@ -328,11 +313,14 @@ end
 --- Runs gates sequentially, stops at first failure.
 --- callback(passed: boolean, output: string)
 function M.run_all(status, callback, baseline_failures, baseline_coverage)
-	status.append("  Verification pipeline")
+	-- Open a fold for gate details
+	status.append("  ▸ Verification ▸{{{")
 
 	-- Gate 1: Lint
 	M.lint(status, function(lint_ok, lint_out)
 		if not lint_ok then
+			status.append("  ▸}}}")
+			status.append_hl("  ✗ Verification failed", "DwightFail")
 			callback(false, lint_out)
 			return
 		end
@@ -340,6 +328,8 @@ function M.run_all(status, callback, baseline_failures, baseline_coverage)
 		-- Gate 2: Unit tests
 		M.tests(status, function(test_ok, test_out)
 			if not test_ok then
+				status.append("  ▸}}}")
+				status.append_hl("  ✗ Verification failed", "DwightFail")
 				callback(false, test_out)
 				return
 			end
@@ -347,14 +337,19 @@ function M.run_all(status, callback, baseline_failures, baseline_coverage)
 			-- Gate 3: Coverage delta
 			M.coverage(status, function(cov_ok, cov_out)
 				if not cov_ok then
+					status.append("  ▸}}}")
+					status.append_hl("  ✗ Verification failed", "DwightFail")
 					callback(false, cov_out)
 					return
 				end
 
 				-- Gate 4: Smoke test
 				M.smoke(status, function(smoke_ok, smoke_out)
+					status.append("  ▸}}}")
 					if smoke_ok then
-						status.append("  All verification gates passed")
+						status.append_hl("  ● Verification passed", "DwightOK")
+					else
+						status.append_hl("  ✗ Verification failed", "DwightFail")
 					end
 					callback(smoke_ok, smoke_out)
 				end)

@@ -58,23 +58,11 @@ Modes are pre-built instructions for common tasks. Each mode constrains the AI's
 | `refine` | Improve clarity, fix grammar, make text more actionable |
 | `docs` | Generate user-facing or developer documentation |
 
-### Agent Modes
-
-These modes are used internally by the agent loop for TDD-style workflows:
-
-| Mode | Description |
-|------|-------------|
-| `implement` | Make failing tests pass — reads tests, writes source |
-| `fix_build` | Fix compilation errors only — minimal changes |
-| `fix_test` | Fix specific test failures — reads error output |
-| `fix_smoke` | Fix runtime failures — unit tests pass but app crashes |
-| `wire` | Connect components in entry points (main/init) |
-
 ---
 
 ## Multi-File Output
 
-Modes marked as multi-file (`stub`, `code`, `implement`, `fix_test`, `fix_smoke`, `wire`) can create, edit, or delete multiple files in one operation. The AI outputs changes in a structured XML format:
+Modes marked as multi-file (`stub`, `code`) can create, edit, or delete multiple files in one operation. The AI outputs changes in a structured XML format:
 
 ```xml
 <changes>

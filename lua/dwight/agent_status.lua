@@ -17,6 +17,9 @@ M._session_cost_start = nil -- tracker session cost at session start
 
 local SPINNER = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }
 
+-- Namespace for extmark-based highlighting
+M._ns = api.nvim_create_namespace("dwight_status")
+
 --------------------------------------------------------------------
 -- Buffer Management
 --------------------------------------------------------------------
@@ -58,31 +61,34 @@ function M.open()
 
 	M._bufnr = buf
 
-	-- Syntax highlighting
+	-- Highlight groups (extmark-based, defined once)
 	pcall(function()
+		-- Semantic groups for the compact display
+		vim.cmd([[
+      highlight default link DwightOK DiagnosticOk
+      highlight default link DwightFail DiagnosticError
+      highlight default link DwightSkip Comment
+      highlight default link DwightDim NonText
+      highlight default link DwightHeader Title
+      highlight default link DwightSpin DiagnosticInfo
+      highlight default link DwightWarn DiagnosticWarn
+      highlight default link DwightCost Special
+    ]])
+		-- Legacy syntax matches for session log viewer / fallback
 		vim.cmd([[
       syntax match DwightStatusOK /^Done.*/
       syntax match DwightStatusFail /^FAILED.*/
       syntax match DwightStatusFail /\<FAILED\>/
       syntax match DwightStatusWarn /^WARN:.*/
       syntax match DwightStatusSpin /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏].*/
-      syntax match DwightStatusStep /\[Step \d\+\]/
-      syntax match DwightStatusStep /\[Task \d\+\]/
       syntax match DwightStatusHeader /^──.*$/
-      syntax match DwightStatusRead /^Read .*/
-      syntax match DwightStatusTool /^Write .*/
-      syntax match DwightStatusTool /^Edit .*/
-      syntax match DwightStatusCmd /^\$ .*/
+      syntax match DwightStatusHeader /^══.*$/
 
       highlight link DwightStatusOK DiagnosticOk
       highlight link DwightStatusFail DiagnosticError
       highlight link DwightStatusWarn DiagnosticWarn
       highlight link DwightStatusSpin DiagnosticInfo
-      highlight link DwightStatusStep Title
       highlight link DwightStatusHeader Title
-      highlight link DwightStatusRead Comment
-      highlight link DwightStatusTool Function
-      highlight link DwightStatusCmd Identifier
     ]])
 	end)
 
@@ -103,6 +109,11 @@ function M._setup_win(win)
 	vim.wo[win].winfixwidth = true
 	vim.wo[win].wrap = true
 	vim.wo[win].cursorline = false
+	vim.wo[win].foldmethod = "marker"
+	vim.wo[win].foldmarker = "▸{{{,▸}}}"
+	vim.wo[win].foldenable = true
+	vim.wo[win].foldlevel = 0 -- all folds closed by default
+	vim.wo[win].foldtext = "v:lua.require'dwight.agent_status'._foldtext()"
 	-- Dynamic statusline with running cost
 	vim.wo[win].statusline = "%#Title# Dwight Agent %#Normal#"
 		.. " %{luaeval('require(\"dwight.agent_status\")._cost_label()')}"
@@ -184,6 +195,30 @@ function M.append(text, opts)
 	pcall(function()
 		require("dwight.session_log").append(text)
 	end)
+end
+
+--- Append a line with a specific highlight group (via extmarks).
+function M.append_hl(text, hl_group)
+	M.append(text)
+	if not hl_group or not M._bufnr or not api.nvim_buf_is_valid(M._bufnr) then
+		return
+	end
+	-- Highlight the line we just appended
+	local line_count = api.nvim_buf_line_count(M._bufnr)
+	-- Find the last line(s) we appended — text may have contained newlines
+	local nlines = 1
+	for _ in text:gmatch("\n") do
+		nlines = nlines + 1
+	end
+	for i = line_count - nlines + 1, line_count do
+		if i >= 1 then
+			pcall(api.nvim_buf_set_extmark, M._bufnr, M._ns, i - 1, 0, {
+				end_row = i - 1,
+				end_col = #(api.nvim_buf_get_lines(M._bufnr, i - 1, i, false)[1] or ""),
+				hl_group = hl_group,
+			})
+		end
+	end
 end
 
 --- Append a header/separator line.
@@ -509,6 +544,34 @@ function M.view_session_log()
 			vim.notify("[dwight] Session log refreshed.", vim.log.levels.INFO)
 		end
 	end, { buffer = buf, desc = "Refresh session log" })
+end
+
+--------------------------------------------------------------------
+-- Fold support
+--------------------------------------------------------------------
+
+--- Custom foldtext: shows the first line of the fold (the header).
+function M._foldtext()
+	local foldstart = vim.v.foldstart
+	local line = vim.fn.getline(foldstart)
+	local fold_size = vim.v.foldend - vim.v.foldstart
+	return line .. string.format("  (%d lines)", fold_size)
+end
+
+--- Append a foldable detail section (closed by default).
+--- header_line: the visible summary line (e.g., "  ▸ Details (12 tool calls)")
+--- detail_lines: table of strings to fold away
+function M.append_fold(header_line, detail_lines)
+	if not detail_lines or #detail_lines == 0 then
+		return
+	end
+	-- Open marker
+	M.append(header_line .. " ▸{{{")
+	for _, line in ipairs(detail_lines) do
+		M.append("    " .. line)
+	end
+	-- Close marker
+	M.append("  ▸}}}")
 end
 
 return M

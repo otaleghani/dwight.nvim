@@ -94,6 +94,105 @@ function M._build_prev_context(completed_sessions)
 	return result
 end
 
+--------------------------------------------------------------------
+-- Shared recap renderer
+--------------------------------------------------------------------
+
+local function fmt_tok(n)
+	if n >= 1000000 then
+		return string.format("%.1fM", n / 1000000)
+	end
+	if n >= 1000 then
+		return string.format("%.1fk", n / 1000)
+	end
+	return tostring(n)
+end
+
+--- Render the final recap block.
+--- @param opts table { status, total_duration, total_cost, tokens, completed_sessions, tasks, failed_idx }
+local function render_recap(status, opts)
+	local completed = opts.completed_sessions or {}
+	local all_tasks = opts.tasks or {}
+	local total = #all_tasks
+	local total_duration = opts.total_duration or 0
+	local total_cost = opts.total_cost or 0
+	local tokens = opts.tokens or { input = 0, output = 0, total = 0 }
+	local failed_idx = opts.failed_idx -- nil if all succeeded
+	local completed_count = opts.completed_count or #completed
+
+	status.append(string.rep("═", 40))
+	status.append("")
+
+	-- Header line
+	if failed_idx then
+		status.append_hl(
+			string.format(" %d/%d tasks completed in %ds", completed_count, total, total_duration),
+			"DwightFail"
+		)
+	else
+		status.append_hl(string.format(" %d/%d tasks completed in %ds", total, total, total_duration), "DwightOK")
+	end
+
+	-- Cost in header if available
+	if total_cost > 0 then
+		status.append_hl(string.format(" Total cost: ~$%.2f", total_cost), "DwightCost")
+	end
+	status.append("")
+
+	-- Build a lookup of completed sessions by task_num
+	local session_by_num = {}
+	for _, s in ipairs(completed) do
+		session_by_num[s.task_num] = s
+	end
+
+	-- Render each task (completed, failed, or skipped)
+	for i, task in ipairs(all_tasks) do
+		local s = session_by_num[i]
+		local task_cost = s and (s.cost or 0) or 0
+		local cost_str = task_cost > 0 and string.format("  $%.2f", task_cost) or ""
+		local dur = s and (s.duration or 0) or 0
+		local title = task.title or "?"
+
+		if s and not s.had_error then
+			status.append_hl(string.format("  ● Task %d: %s  %ds%s", i, title, dur, cost_str), "DwightOK")
+		elseif s and s.had_error then
+			status.append_hl(string.format("  ✗ Task %d: %s  %ds%s", i, title, dur, cost_str), "DwightFail")
+			local err = (s.journal and s.journal[#s.journal]) or ""
+			if s.summary and s.summary ~= "" then
+				err = s.summary
+			end
+			if opts.failed_error and i == failed_idx then
+				err = opts.failed_error
+			end
+			if err ~= "" then
+				status.append_hl(string.format("    └ %s", err:sub(1, 120)), "DwightFail")
+			end
+		else
+			status.append_hl(string.format("  ○ Task %d: %s", i, title), "DwightSkip")
+		end
+	end
+
+	status.append("")
+	status.append("  " .. string.rep("─", 37))
+
+	-- Token summary
+	local summary_parts = {}
+	if total_cost > 0 then
+		summary_parts[#summary_parts + 1] = string.format("~$%.2f", total_cost)
+	end
+	if tokens.total > 0 then
+		summary_parts[#summary_parts + 1] = fmt_tok(tokens.input) .. " in / " .. fmt_tok(tokens.output) .. " out"
+	end
+	if #summary_parts > 0 then
+		status.append("  " .. table.concat(summary_parts, " | "))
+	end
+	status.append("")
+end
+
+--------------------------------------------------------------------
+-- Task execution
+--------------------------------------------------------------------
+
 --- Execute a single sub-task: generate plan → auto-execute.
 --- callback(success, session_data)
 function M._execute_task(task, task_num, total_tasks, master_request, status, prev_sessions, callback)
@@ -108,7 +207,53 @@ function M._execute_task_agentic(task, task_num, total_tasks, master_request, st
 	local agent = require("dwight.agent")
 	local agentic = require("dwight.agentic")
 
-	status.append(string.format("[%d/%d] %s", task_num, total_tasks, task.title))
+	-- Tool call counters for compact display
+	local tool_counts = { reads = 0, writes = 0, edits = 0, cmds = 0, searches = 0, other = 0 }
+	local tool_log = {} -- detailed tool descriptions for foldable section
+
+	-- Classify a tool description into a counter key
+	local function classify_tool(desc)
+		if desc:match("^Read ") then
+			return "reads"
+		elseif desc:match("^Write ") then
+			return "writes"
+		elseif desc:match("^Edit ") then
+			return "edits"
+		elseif desc:match("^%$ ") or desc:match("^Tool: Bash") then
+			return "cmds"
+		elseif desc:match("^Search ") or desc:match("^List ") then
+			return "searches"
+		else
+			return "other"
+		end
+	end
+
+	-- Format tool counters into a compact string like "8r 3w 2e 1cmd"
+	local function fmt_tools()
+		local parts = {}
+		if tool_counts.reads > 0 then
+			parts[#parts + 1] = tool_counts.reads .. "r"
+		end
+		if tool_counts.writes > 0 then
+			parts[#parts + 1] = tool_counts.writes .. "w"
+		end
+		if tool_counts.edits > 0 then
+			parts[#parts + 1] = tool_counts.edits .. "e"
+		end
+		if tool_counts.cmds > 0 then
+			parts[#parts + 1] = tool_counts.cmds .. "cmd"
+		end
+		if tool_counts.searches > 0 then
+			parts[#parts + 1] = tool_counts.searches .. "s"
+		end
+		if tool_counts.other > 0 then
+			parts[#parts + 1] = tool_counts.other .. "?"
+		end
+		if #parts == 0 then
+			return ""
+		end
+		return " [" .. table.concat(parts, " ") .. "]"
+	end
 
 	-- Build context
 	local prev_context = M._build_prev_context(prev_sessions)
@@ -202,16 +347,43 @@ function M._execute_task_agentic(task, task_num, total_tasks, master_request, st
 		language = detected_lang,
 
 		on_status = function(text)
-			if #text > 15 then
+			-- Only surface structured events (test results, errors) in the buffer.
+			-- Everything else goes to session_log only.
+			if text:match("Tests? FAILED") or text:match("Build failed") then
 				status.stop_spin()
-				status.append(string.format("[%d/%d] %s", task_num, total_tasks, text:sub(1, 500)))
+				status.append_hl(string.format("  [%d/%d] %s", task_num, total_tasks, text:sub(1, 200)), "DwightFail")
+				status.spin(
+					string.format("[%d/%d] working...%s  %ds", task_num, total_tasks, fmt_tools(), os.time() - started)
+				)
+			elseif text:match("Tests? passed") or text:match("Build OK") then
+				status.stop_spin()
+				status.append_hl(string.format("  [%d/%d] %s", task_num, total_tasks, text:sub(1, 200)), "DwightOK")
+				status.spin(
+					string.format("[%d/%d] working...%s  %ds", task_num, total_tasks, fmt_tools(), os.time() - started)
+				)
 			end
+			-- Always log to session_log for full history
+			pcall(function()
+				if #text > 5 then
+					require("dwight.session_log").append(
+						string.format("[%d/%d] %s", task_num, total_tasks, text:sub(1, 500))
+					)
+				end
+			end)
 		end,
 
 		on_tool = function(desc)
-			status.stop_spin()
-			status.append(string.format("  [%d/%d] %s", task_num, total_tasks, desc))
-			status.spin(string.format("[%d/%d] working...", task_num, total_tasks))
+			-- Increment counter and update spinner in-place
+			local key = classify_tool(desc)
+			tool_counts[key] = tool_counts[key] + 1
+			tool_log[#tool_log + 1] = desc:sub(1, 120)
+			status.spin(
+				string.format("[%d/%d] working...%s  %ds", task_num, total_tasks, fmt_tools(), os.time() - started)
+			)
+			-- Log detail to session_log
+			pcall(function()
+				require("dwight.session_log").append(string.format("  [%d/%d] %s", task_num, total_tasks, desc))
+			end)
 		end,
 
 		on_complete = function(success, data)
@@ -240,6 +412,9 @@ function M._execute_task_agentic(task, task_num, total_tasks, master_request, st
 				files_created = data.files_created or {},
 				files_edited = data.files_edited or {},
 				commands_run = data.commands_run or {},
+				-- Store tool log for foldable details
+				tool_log = tool_log,
+				tool_counts = tool_counts,
 			}
 
 			-- Save session
@@ -272,48 +447,38 @@ function M._execute_task_agentic(task, task_num, total_tasks, master_request, st
 					function(lessons)
 						if lessons and #lessons > 0 then
 							agent._append_lessons(lessons)
-							status.append(string.format("Learned %d lesson(s)", #lessons))
 						end
 					end
 				)
 			end)
 
-			-- Report result
+			-- Compact completion line
 			local task_cost = session_data.cost or 0
-			local cost_str = task_cost > 0 and string.format(" (~$%.2f)", task_cost) or ""
-			local iter_str = data.iterations and string.format(" [%d turns]", data.iterations) or ""
+			local cost_str = task_cost > 0 and string.format("  ~$%.2f", task_cost) or ""
+			local tools_str = fmt_tools()
 
 			if success then
-				status.append(
-					string.format(
-						"[%d/%d] %s — done in %ds%s%s",
-						task_num,
-						total_tasks,
-						task.title,
-						duration,
-						cost_str,
-						iter_str
-					)
+				status.append_hl(
+					string.format("  ● %s  %ds%s%s", task.title, duration, cost_str, tools_str),
+					"DwightOK"
 				)
 			else
-				status.append(
-					string.format(
-						"[%d/%d] %s — FAILED in %ds%s%s",
-						task_num,
-						total_tasks,
-						task.title,
-						duration,
-						cost_str,
-						iter_str
-					)
+				status.append_hl(
+					string.format("  ✗ %s  %ds%s%s", task.title, duration, cost_str, tools_str),
+					"DwightFail"
 				)
-				-- Surface the actual error reason so it's not silently swallowed
 				if data.error and data.error ~= "" then
-					status.append(string.format("  Reason: %s", data.error:sub(1, 200)))
+					status.append_hl(string.format("    └ %s", data.error:sub(1, 200)), "DwightFail")
 				end
-				if data.summary and data.summary ~= "" then
-					status.append(string.format("  %s", data.summary:sub(1, 200)))
+			end
+
+			-- Foldable detail section
+			if #tool_log > 0 then
+				local total_tools = 0
+				for _, v in pairs(tool_counts) do
+					total_tools = total_tools + v
 				end
+				status.append_fold(string.format("  ▸ Details (%d tool calls)", total_tools), tool_log)
 			end
 
 			callback(success, session_data)
@@ -340,13 +505,17 @@ function M._run_loop(tasks, start_from, master_request, master_started, status, 
 	end
 	local total_cost = 0
 
+	-- Collect baseline info into summary + detail lines, then render as one fold
+	local baseline_lines = {}
+	local baseline_summary = {}
+
 	-- Create initial git checkpoint before any tasks run
 	if git.is_git_repo() then
 		local diff_out, _ = git.git_sync({ "status", "--porcelain" }, 3000)
 		if diff_out and vim.trim(diff_out) ~= "" then
 			git.git_sync({ "add", "-A" }, 5000)
 			git.git_sync({ "commit", "-m", "chore: pre-session checkpoint", "--no-verify" }, 10000)
-			status.append("Initial git checkpoint saved")
+			baseline_lines[#baseline_lines + 1] = "Initial git checkpoint saved"
 		end
 	end
 
@@ -360,8 +529,6 @@ function M._run_loop(tasks, start_from, master_request, master_started, status, 
 	end)
 
 	-- Capture baseline test failures BEFORE any tasks run.
-	-- This way we only fail the verification gate on NEW test failures,
-	-- not pre-existing broken tests in the project.
 	local baseline_failures = {}
 	pcall(function()
 		local agentic = require("dwight.agentic")
@@ -370,12 +537,10 @@ function M._run_loop(tasks, start_from, master_request, master_started, status, 
 			return
 		end
 
-		status.append("Running baseline test snapshot...")
 		local output = vim.fn.system(test_cmd .. " 2>&1")
 		local code = vim.v.shell_error
 
 		if code ~= 0 then
-			-- Extract failing test names: "--- FAIL: TestName (0.00s)"
 			for test_name in output:gmatch("%-%-%-% FAIL:%s+(%S+)") do
 				baseline_failures[test_name] = true
 			end
@@ -384,19 +549,19 @@ function M._run_loop(tasks, start_from, master_request, master_started, status, 
 				count = count + 1
 			end
 			if count > 0 then
-				status.append(
-					string.format("  WARN: %d pre-existing test failure(s) (will be ignored in gates)", count)
-				)
+				baseline_summary[#baseline_summary + 1] = string.format("tests: %d pre-existing", count)
+				baseline_lines[#baseline_lines + 1] =
+					string.format("%d pre-existing test failure(s) (will be ignored in gates)", count)
 				for name, _ in pairs(baseline_failures) do
-					status.append("    - " .. name)
+					baseline_lines[#baseline_lines + 1] = "  - " .. name
 				end
 			else
-				-- Tests failed but we couldn't parse test names — might be compile error
-				status.append("  WARN: Baseline tests failed (couldn't parse test names — may be compile error)")
-				-- Show first few lines
+				baseline_summary[#baseline_summary + 1] = "tests: compile error?"
+				baseline_lines[#baseline_lines + 1] =
+					"Baseline tests failed (couldn't parse test names — may be compile error)"
 				local n = 0
 				for line in output:gmatch("[^\n]+") do
-					status.append("    " .. line)
+					baseline_lines[#baseline_lines + 1] = "  " .. line
 					n = n + 1
 					if n >= 5 then
 						break
@@ -404,12 +569,12 @@ function M._run_loop(tasks, start_from, master_request, master_started, status, 
 				end
 			end
 		else
-			status.append("  Baseline tests pass")
+			baseline_summary[#baseline_summary + 1] = "tests pass"
+			baseline_lines[#baseline_lines + 1] = "Baseline tests pass"
 		end
 	end)
 
 	-- Capture baseline coverage BEFORE any tasks run.
-	-- Used by the coverage delta gate to detect regressions.
 	local baseline_coverage = nil
 	pcall(function()
 		local agentic = require("dwight.agentic")
@@ -418,29 +583,39 @@ function M._run_loop(tasks, start_from, master_request, master_started, status, 
 			return
 		end
 
-		status.append("Capturing baseline coverage...")
 		local output = vim.fn.system(cov_info.cmd .. " 2>&1")
 		local pct = cov_info.parse_total(output)
 		if pct then
 			baseline_coverage = pct
-			status.append(string.format("  Baseline coverage: %.1f%%", pct))
+			baseline_summary[#baseline_summary + 1] = string.format("%.1f%% cov", pct)
+			baseline_lines[#baseline_lines + 1] = string.format("Baseline coverage: %.1f%%", pct)
 		else
-			status.append("  WARN: Couldn't parse baseline coverage — delta gate will be skipped")
+			baseline_lines[#baseline_lines + 1] = "Couldn't parse baseline coverage — delta gate will be skipped"
 		end
 	end)
 
-	-- Check lint baseline (just note if linter is available)
+	-- Check lint baseline
 	pcall(function()
 		local agentic = require("dwight.agentic")
 		local lint_cmd, lint_bin = agentic.get_lint_command()
 		if lint_cmd then
-			status.append(string.format("Linter available: %s", lint_bin))
+			baseline_summary[#baseline_summary + 1] = "lint: " .. (lint_bin or "yes")
+			baseline_lines[#baseline_lines + 1] = string.format("Linter: %s", lint_bin or lint_cmd)
 		end
 		local smoke = agentic.get_smoke_command()
 		if smoke then
-			status.append("Smoke test available")
+			baseline_lines[#baseline_lines + 1] = "Smoke test available"
 		end
 	end)
+
+	-- Render baseline as a single fold
+	if #baseline_lines > 0 then
+		local header = "Baseline"
+		if #baseline_summary > 0 then
+			header = header .. " (" .. table.concat(baseline_summary, ", ") .. ")"
+		end
+		status.append_fold("  " .. header, baseline_lines)
+	end
 
 	local function run_next(idx)
 		if idx > total then
@@ -449,47 +624,16 @@ function M._run_loop(tasks, start_from, master_request, master_started, status, 
 			total_cost = status.session_cost and status.session_cost() or 0
 
 			status.stop_spin()
-			status.append(string.rep("═", 40))
-			status.append("")
-			status.append(string.format("ALL %d TASKS COMPLETE in %ds", total, total_duration))
-			status.append("")
-			status.append("Usage:")
 			local tokens = status.session_tokens and status.session_tokens() or { input = 0, output = 0, total = 0 }
-			local fmt_tok = function(n)
-				if n >= 1000000 then
-					return string.format("%.1fM", n / 1000000)
-				end
-				if n >= 1000 then
-					return string.format("%.1fk", n / 1000)
-				end
-				return tostring(n)
-			end
-			for _, s in ipairs(completed_sessions) do
-				local task_cost = s.cost or 0
-				local cost_str = task_cost > 0 and string.format("$%.2f", task_cost) or "—"
-				local icon = s.had_error and "x" or "✓"
-				local title = s.title or "?"
-				status.append(
-					string.format("  %s %-30s %s", icon, "Task " .. (s.task_num or 0) .. ": " .. title, cost_str)
-				)
-			end
-			status.append("")
-			status.append("  " .. string.rep("─", 37))
-			local summary_parts = {}
-			if total_cost > 0 then
-				summary_parts[#summary_parts + 1] = string.format("~$%.2f", total_cost)
-			end
-			if tokens.total > 0 then
-				summary_parts[#summary_parts + 1] = fmt_tok(tokens.input)
-					.. " in / "
-					.. fmt_tok(tokens.output)
-					.. " out"
-			end
-			if #summary_parts > 0 then
-				status.append("  Total: " .. table.concat(summary_parts, " | "))
-			end
-			status.append("")
-			status.append(string.rep("═", 40))
+
+			render_recap(status, {
+				completed_sessions = completed_sessions,
+				tasks = tasks,
+				total_duration = total_duration,
+				total_cost = total_cost,
+				tokens = tokens,
+				completed_count = total,
+			})
 
 			status.end_session(true, total_duration)
 
@@ -619,53 +763,17 @@ function M._run_loop(tasks, start_from, master_request, master_started, status, 
 
 						local tokens = status.session_tokens and status.session_tokens()
 							or { input = 0, output = 0, total = 0 }
-						status.append(string.rep("═", 40))
-						status.append("")
-						status.append(string.format("FAILED at task %d/%d in %ds", idx, total, total_duration))
-						status.append("")
-						status.append("Usage:")
-						local fmt_tok = function(n)
-							if n >= 1000000 then
-								return string.format("%.1fM", n / 1000000)
-							end
-							if n >= 1000 then
-								return string.format("%.1fk", n / 1000)
-							end
-							return tostring(n)
-						end
-						for _, s in ipairs(completed_sessions) do
-							local task_cost = s.cost or 0
-							local cost_str = task_cost > 0 and string.format("$%.2f", task_cost) or "—"
-							local icon = s.had_error and "x" or "✓"
-							local title = s.title or "?"
-							status.append(
-								string.format(
-									"  %s %-30s %s",
-									icon,
-									"Task " .. (s.task_num or 0) .. ": " .. title,
-									cost_str
-								)
-							)
-						end
-						-- Add the failed task entry
-						status.append(string.format("  x %-30s FAILED", "Task " .. idx .. ": " .. (task.title or "?")))
-						status.append("")
-						status.append("  " .. string.rep("─", 37))
-						local summary_parts = {}
-						if total_cost > 0 then
-							summary_parts[#summary_parts + 1] = string.format("~$%.2f", total_cost)
-						end
-						if tokens.total > 0 then
-							summary_parts[#summary_parts + 1] = fmt_tok(tokens.input)
-								.. " in / "
-								.. fmt_tok(tokens.output)
-								.. " out"
-						end
-						if #summary_parts > 0 then
-							status.append("  Total: " .. table.concat(summary_parts, " | "))
-						end
-						status.append("")
-						status.append(string.rep("═", 40))
+
+						render_recap(status, {
+							completed_sessions = completed_sessions,
+							tasks = tasks,
+							total_duration = total_duration,
+							total_cost = total_cost,
+							tokens = tokens,
+							failed_idx = idx,
+							failed_error = err_msg,
+							completed_count = idx - 1,
+						})
 
 						status.stop_spin()
 						status.end_session(false, total_duration)
@@ -706,26 +814,6 @@ function M._run_loop(tasks, start_from, master_request, master_started, status, 
 			if success then
 				notify._notify_progress(idx, total, task.title)
 
-				-- Show running total
-				local running_tokens = status.session_tokens and status.session_tokens()
-					or { input = 0, output = 0, total = 0 }
-				local parts = {}
-				if running_cost > 0 then
-					parts[#parts + 1] = string.format("~$%.2f", running_cost)
-				end
-				if running_tokens.total > 0 then
-					local fmt = function(n)
-						if n >= 1000 then
-							return string.format("%.1fk", n / 1000)
-						end
-						return tostring(n)
-					end
-					parts[#parts + 1] = fmt(running_tokens.total) .. " tok"
-				end
-				if #parts > 0 then
-					status.append(string.format("  Running total: %s", table.concat(parts, " | ")))
-				end
-
 				-- Git checkpoint
 				git._git_checkpoint(idx, total, task.title, status)
 
@@ -733,14 +821,18 @@ function M._run_loop(tasks, start_from, master_request, master_started, status, 
 				-- Pass baseline_failures and baseline_coverage for delta checks
 				auto._verification_gate(status, function(gate_passed, gate_output)
 					if gate_passed then
-						-- Show diff stats for this task's changes
+						-- Compact diff summary (file count only)
 						pcall(function()
 							if git.is_git_repo() then
 								local diff_out = vim.fn.system("git diff --stat HEAD~1..HEAD 2>/dev/null")
 								if diff_out and vim.trim(diff_out) ~= "" then
-									status.append("  Changes:")
+									-- Extract last line: " N files changed, N insertions(+), N deletions(-)"
+									local last_line
 									for line in diff_out:gmatch("[^\n]+") do
-										status.append("    " .. line)
+										last_line = line
+									end
+									if last_line then
+										status.append_hl("    " .. vim.trim(last_line), "DwightDim")
 									end
 								end
 							end
@@ -757,16 +849,14 @@ function M._run_loop(tasks, start_from, master_request, master_started, status, 
 
 							local sync = integration.pragma_sync(feature_name)
 							if #sync.added > 0 then
-								status.append(
+								status.append_hl(
 									string.format(
-										"  Pragma sync: added @feature:%s to %d new file(s)",
+										"    pragma: @feature:%s +%d file(s)",
 										feature_name or "?",
 										#sync.added
-									)
+									),
+									"DwightDim"
 								)
-								for _, path in ipairs(sync.added) do
-									status.append("     + " .. path)
-								end
 								-- Stage the pragma additions so they're included in the checkpoint
 								git.git_sync({ "add", "-A" }, 3000)
 								git.git_sync({ "commit", "--amend", "--no-edit", "--no-verify" }, 5000)

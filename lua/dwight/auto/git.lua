@@ -59,14 +59,14 @@ function M._git_checkpoint(task_num, total, title, status)
 	-- Check if there are any changes to commit
 	local diff_output, _ = M.git_sync({ "status", "--porcelain" }, 3000)
 	if not diff_output or vim.trim(diff_output) == "" then
-		status.append("  No changes to checkpoint (clean working tree)")
+		status.append_hl("  ○ No changes to checkpoint", "DwightDim")
 		return true -- not an error, just nothing to commit
 	end
 
 	-- Stage all changes
 	local _, add_code = M.git_sync({ "add", "-A" }, 5000)
 	if add_code ~= 0 then
-		status.append("  WARN: Git add failed — skipping checkpoint")
+		status.append_hl("  ✗ Git add failed — skipping checkpoint", "DwightWarn")
 		return false
 	end
 
@@ -82,13 +82,13 @@ function M._git_checkpoint(task_num, total, title, status)
 
 	local _, commit_code = M.git_sync({ "commit", "-m", msg, "--no-verify" }, 10000)
 	if commit_code ~= 0 then
-		status.append("  WARN: Git commit failed — skipping checkpoint")
+		status.append_hl("  ✗ Git commit failed — skipping checkpoint", "DwightWarn")
 		return false
 	end
 
 	-- Show just the first line in the status
 	local first_line = msg:match("^([^\n]+)")
-	status.append(string.format("  Git checkpoint: %s", first_line))
+	status.append_hl(string.format("  ● Git: %s", first_line), "DwightDim")
 
 	-- Background: upgrade commit message with LLM-generated one (fire-and-forget)
 	-- Save the commit hash so we only amend THIS commit, not a later one
@@ -112,7 +112,7 @@ function M._git_checkpoint(task_num, total, title, status)
 								M.git_sync({ "commit", "--amend", "-m", ai_msg, "--no-verify" }, 10000)
 							if amend_code == 0 then
 								local ai_first = ai_msg:match("^([^\n]+)")
-								status.append(string.format("  Commit upgraded: %s", ai_first))
+								status.append_hl(string.format("  ● Git: %s", ai_first), "DwightDim")
 							end
 						end
 					end)
@@ -134,14 +134,14 @@ function M._git_rollback(status)
 	-- Reset to last commit (which is the checkpoint)
 	local _, code = M.git_sync({ "reset", "--hard", "HEAD" }, 5000)
 	if code ~= 0 then
-		status.append("  WARN: Git rollback failed")
+		status.append_hl("  ✗ Git rollback failed", "DwightWarn")
 		return false
 	end
 
 	-- Clean untracked files too
 	M.git_sync({ "clean", "-fd" }, 5000)
 
-	status.append("  Git rollback: restored to last checkpoint")
+	status.append_hl("  ● Rolled back to last checkpoint", "DwightWarn")
 	return true
 end
 

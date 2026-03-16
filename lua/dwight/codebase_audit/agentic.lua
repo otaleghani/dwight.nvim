@@ -226,85 +226,128 @@ function M._agentic_review(feature_name, feature_files, static_result, callback)
 	local status_mod = require("dwight.agent_status")
 
 	status_mod.open()
-	status_mod.start_session("🔍 Deep audit: $" .. feature_name)
-	status_mod.append("🔍 Agentic deep audit: $" .. feature_name)
-	status_mod.append(
-		string.format("   %d files, %d static findings to verify", #feature_files, #static_result.findings)
+	status_mod.start_session("Deep audit: $" .. feature_name)
+	status_mod.append_hl(
+		string.format(
+			"Auditing $%s — %d files, %d static findings",
+			feature_name,
+			#feature_files,
+			#static_result.findings
+		),
+		"DwightHeader"
 	)
-	status_mod.append("🤖 Starting agent session...")
 
 	local task = M.build_audit_prompt(feature_name, feature_files, static_result)
 
-	local tool_counts = { read = 0, write = 0, run = 0 }
+	local tool_counts = { reads = 0, writes = 0, cmds = 0, searches = 0, other = 0 }
+	local tool_log = {}
+	local audit_started = os.time()
+
+	local function fmt_tools()
+		local parts = {}
+		if tool_counts.reads > 0 then
+			parts[#parts + 1] = tool_counts.reads .. "r"
+		end
+		if tool_counts.writes > 0 then
+			parts[#parts + 1] = tool_counts.writes .. "w"
+		end
+		if tool_counts.cmds > 0 then
+			parts[#parts + 1] = tool_counts.cmds .. "cmd"
+		end
+		if tool_counts.searches > 0 then
+			parts[#parts + 1] = tool_counts.searches .. "s"
+		end
+		if #parts == 0 then
+			return ""
+		end
+		return " [" .. table.concat(parts, " ") .. "]"
+	end
 
 	agentic.run({
 		task = task,
 
 		on_status = function(text)
-			status_mod.stop_spin()
-			status_mod.append(text)
+			-- Only surface structured events
+			if text:match("Tests? FAILED") or text:match("FAIL") then
+				status_mod.stop_spin()
+				status_mod.append_hl("  " .. text:sub(1, 200), "DwightFail")
+				status_mod.spin("Auditing..." .. fmt_tools() .. "  " .. (os.time() - audit_started) .. "s")
+			elseif text:match("Tests? passed") or text:match("PASS") then
+				status_mod.stop_spin()
+				status_mod.append_hl("  " .. text:sub(1, 200), "DwightOK")
+				status_mod.spin("Auditing..." .. fmt_tools() .. "  " .. (os.time() - audit_started) .. "s")
+			end
+			pcall(function()
+				if #text > 5 then
+					require("dwight.session_log").append(text:sub(1, 500))
+				end
+			end)
 		end,
 
 		on_tool = function(desc)
-			local tt = desc:match("^📖") and "read"
-				or desc:match("^📝") and "write"
-				or desc:match("^🔧 run") and "run"
-				or desc:match("^🔍") and "search"
+			local key = desc:match("^Read ") and "reads"
+				or desc:match("^Write ") and "writes"
+				or desc:match("^%$ ") and "cmds"
+				or (desc:match("^Search ") or desc:match("^List ")) and "searches"
 				or "other"
-			tool_counts[tt] = (tool_counts[tt] or 0) + 1
-
-			local should_persist = tt == "write"
-				or tt == "run"
-				or tt == "search"
-				or (tt == "read" and (tool_counts.read == 1 or tool_counts.read % 3 == 0))
-			if should_persist then
-				status_mod.stop_spin()
-				status_mod.append(desc)
-			end
-			status_mod.spin(desc)
+			tool_counts[key] = tool_counts[key] + 1
+			tool_log[#tool_log + 1] = desc:sub(1, 120)
+			status_mod.spin("Auditing..." .. fmt_tools() .. "  " .. (os.time() - audit_started) .. "s")
+			pcall(function()
+				require("dwight.session_log").append("  " .. desc)
+			end)
 		end,
 
 		on_complete = function(success, _data)
 			status_mod.stop_spin()
 
+			-- Foldable detail section
+			if #tool_log > 0 then
+				local total_tools = 0
+				for _, v in pairs(tool_counts) do
+					total_tools = total_tools + v
+				end
+				status_mod.append_fold(string.format("  ▸ Details (%d tool calls)", total_tools), tool_log)
+			end
+
 			if not success then
-				status_mod.append("❌ Agentic audit failed")
+				status_mod.append_hl("  ✗ Audit failed", "DwightFail")
 				callback(static_result)
 				return
 			end
 
-			-- Parse structured output
 			local agent_data = M.parse_agent_audit_result()
 			if not agent_data then
-				status_mod.append("⚠️  Agent did not produce structured output — showing static results only")
+				status_mod.append_hl("  ✗ No structured output — using static results", "DwightWarn")
 				callback(static_result)
 				return
 			end
 
-			-- Merge agent results
 			local merged = M.merge_agent_results(static_result, agent_data)
-
 			local review = merged.agent_review or {}
+
 			status_mod.append("")
-			status_mod.append("✅ Deep audit complete:")
-			status_mod.append(
+			status_mod.append_hl("  ● Audit complete", "DwightOK")
+			status_mod.append_hl(
 				string.format(
-					"   Verified: %d  │  False positives: %d  │  New: %d",
+					"    Verified: %d  |  False positives: %d  |  New: %d",
 					review.verified or 0,
 					review.false_positives or 0,
 					review.new_findings or 0
-				)
+				),
+				"DwightDim"
 			)
 
 			if review.test_results then
 				local tr = review.test_results
-				local status_icon = tr.passed and "✅" or "❌"
-				local cov_str = tr.coverage_pct and string.format(" │ Coverage: %.1f%%", tr.coverage_pct) or ""
-				status_mod.append(string.format("   Tests: %s%s", status_icon, cov_str))
+				local hl = tr.passed and "DwightOK" or "DwightFail"
+				local icon = tr.passed and "●" or "✗"
+				local cov_str = tr.coverage_pct and string.format(" | Coverage: %.1f%%", tr.coverage_pct) or ""
+				status_mod.append_hl(string.format("    %s Tests%s", icon, cov_str), hl)
 			end
 
 			if review.summary then
-				status_mod.append("   " .. (review.summary or ""):sub(1, 200))
+				status_mod.append_hl("    " .. (review.summary or ""):sub(1, 200), "DwightDim")
 			end
 
 			callback(merged)

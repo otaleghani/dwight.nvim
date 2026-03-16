@@ -158,12 +158,26 @@ function M.auto(request)
 		end
 	end)
 
+	-- Show decomposition progress in the status buffer
+	local status = require("dwight.agent_status")
+	status.open()
+	status.start_session("Auto: " .. request:sub(1, 50))
+	status.spin("Decomposing request into sub-tasks...")
+
 	vim.notify("[dwight] DwightAuto: decomposing request into sub-tasks…", vim.log.levels.INFO)
 
 	M._decompose(request, function(tasks, err)
+		status.stop_spin()
 		if err then
+			status.append_hl("Decomposition failed: " .. err:sub(1, 200), "DwightFail")
+			status.end_session(false, 0)
 			vim.notify("[dwight] Decomposition failed: " .. err, vim.log.levels.ERROR)
 			return
+		end
+
+		status.append_hl(string.format("Decomposed into %d sub-tasks", #tasks), "DwightOK")
+		for i, task in ipairs(tasks) do
+			status.append_hl(string.format("  %d. %s", i, task.title), "DwightDim")
 		end
 
 		vim.notify(
@@ -183,12 +197,15 @@ function M._start_execution(request, tasks, start_from, prev_sessions)
 	local status = require("dwight.agent_status")
 	local master_started = os.time()
 
-	status.start_session("Auto: " .. request:sub(1, 50))
-	status.append(string.format("%d sub-tasks, starting from task %d", #tasks, start_from))
-	for i, task in ipairs(tasks) do
-		local marker = i < start_from and "✓" or (i == start_from and ">" or " ")
-		status.append(string.format("  %s %d. %s", marker, i, task.title))
+	-- Reuse existing session if already open (from decomposition spinner),
+	-- otherwise start a new one.
+	if not status.is_active() then
+		status.start_session("Auto: " .. request:sub(1, 50))
 	end
+
+	status.append("")
+	status.header(string.format("Executing %d tasks", #tasks))
+	status.append("")
 
 	M._system_notify("Dwight Auto Started", string.format("%d tasks: %s", #tasks, request:sub(1, 80)))
 

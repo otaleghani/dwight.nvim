@@ -25,7 +25,7 @@ M.defaults = {
 
 	-- Model diversity: use different models for test writing vs implementation.
 	test_model = nil, -- e.g., "sonnet" or "openai:gpt-4o"
-	implement_model = nil, -- e.g., "opus" or "claude-sonnet-4"
+	implement_model = nil, -- e.g., "opus" — used for /code, /fix modes
 
 	-- Claude Code CLI settings (backend = "claude_code")
 	-- Uses your authenticated Claude Code session. No API key needed.
