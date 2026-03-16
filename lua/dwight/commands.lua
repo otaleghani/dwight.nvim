@@ -815,7 +815,7 @@ function M.register()
 	-- TDD commands
 	cmd("DwightTDD", function(o)
 		require_mod("tdd").start(o.args ~= "" and o.args or nil)
-	end, { nargs = "?", desc = "Start TDD session (run -> fix -> rerun loop)" })
+	end, { nargs = "?", desc = "Start TDD session: describe a feature, agent writes tests + code" })
 
 	cmd("DwightTDDStop", function()
 		require_mod("tdd").stop()

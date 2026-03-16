@@ -58,6 +58,10 @@ Modes are pre-built instructions for common tasks. Each mode constrains the AI's
 | `refine` | Improve clarity, fix grammar, make text more actionable |
 | `docs` | Generate user-facing or developer documentation |
 
+### Custom Modes
+
+You can register project-specific modes in `setup()`. See [[Configuration]] for details.
+
 ---
 
 ## Multi-File Output

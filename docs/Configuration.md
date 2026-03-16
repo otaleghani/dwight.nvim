@@ -163,6 +163,27 @@ require("dwight").setup({
 
 Dwight auto-detects Go, Python, Rust, JavaScript, TypeScript, Lua, Ruby, Java, Kotlin, C#, C, C++, Swift, Dart, Elixir, Scala, Haskell, Zig, OCaml, Clojure, R, PHP, and Shell. Use this to override defaults or add languages Dwight doesn't know about.
 
+### Custom Modes
+Register project-specific modes that appear alongside built-in modes.
+
+```lua
+require("dwight").setup({
+  modes = {
+    deploy = {
+      task = "Generate a deployment script for the current project",
+      context = "code",     -- "code" | "prose" | "both" (default: "both")
+      description = "Generate deployment scripts",
+    },
+    review = {
+      task = "Review this code for correctness and clarity",
+      context = "code",
+    },
+  },
+})
+```
+
+Each mode must have a `task` field (the instruction sent to the AI). Optional fields: `context`, `description`, `icon`, `name`. Custom modes are invoked the same way as built-in modes: `:DwightMode deploy` or `/deploy` in the prompt buffer.
+
 ### Comment Styles
 Override how Dwight writes pragma comments for specific file extensions.
 

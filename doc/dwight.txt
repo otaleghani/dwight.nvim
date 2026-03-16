@@ -376,6 +376,9 @@ Pass options to |dwight.setup()|. All options are optional. >lua
 
     -- Language overrides (see |dwight-languages|)
     languages = {},
+
+    -- Custom modes (see docs/Configuration.md)
+    modes = {},                 -- { name = { task = "...", ... } }
   })
 <
 

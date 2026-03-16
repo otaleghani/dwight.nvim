@@ -4,7 +4,9 @@
 
 local M = {}
 
-M._session = nil -- { test_cmd, test_file, source_file, iterations, last_result }
+M._session = nil -- { description, test_cmd, iterations, last_result, phase, started }
+
+local MAX_ITERATIONS = 10
 
 --------------------------------------------------------------------
 -- Test File Discovery
@@ -76,30 +78,104 @@ end
 -- TDD Session
 --------------------------------------------------------------------
 
-function M.start(test_cmd)
+function M.start(description)
 	local runner = require("dwight.runner")
 
-	if not test_cmd or test_cmd == "" then
-		test_cmd = runner._detect_runner()
-		if test_cmd == "" then
-			vim.ui.input({ prompt = "Test command: " }, function(cmd)
-				if cmd and cmd ~= "" then
-					M.start(cmd)
-				end
-			end)
-			return
-		end
+	if not description or description == "" then
+		vim.ui.input({ prompt = "Feature to TDD: " }, function(desc)
+			if desc and desc ~= "" then
+				M.start(desc)
+			end
+		end)
+		return
 	end
 
+	local test_cmd = runner._detect_runner()
+	if test_cmd == "" then
+		vim.ui.input({ prompt = "Test command (none detected): " }, function(cmd)
+			if cmd and cmd ~= "" then
+				M._start_with(description, cmd)
+			else
+				vim.notify("[dwight] TDD requires a test command.", vim.log.levels.WARN)
+			end
+		end)
+		return
+	end
+
+	M._start_with(description, test_cmd)
+end
+
+function M._start_with(description, test_cmd)
 	M._session = {
+		description = description,
 		test_cmd = test_cmd,
 		iterations = 0,
 		last_result = nil,
+		phase = "write_test",
 		started = os.time(),
 	}
+	vim.notify(
+		string.format('[dwight] TDD session started: "%s" (test cmd: %s)', description, test_cmd),
+		vim.log.levels.INFO
+	)
+	M._agent_step()
+end
 
-	vim.notify("[dwight] ✗ TDD session started: " .. test_cmd, vim.log.levels.INFO)
-	M._run_tests()
+function M._agent_step()
+	local session = M._session
+	if not session then
+		return
+	end
+
+	if session.iterations >= MAX_ITERATIONS then
+		vim.notify(string.format("[dwight] TDD: hit %d iteration cap. Stopping.", MAX_ITERATIONS), vim.log.levels.WARN)
+		M.stop()
+		return
+	end
+
+	local prompt
+	if session.phase == "write_test" then
+		prompt = string.format(
+			"Write a FAILING test for the following feature:\n\n%s\n\n"
+				.. "The test runner command is: %s\n"
+				.. "Write the minimal test that captures the requirement. "
+				.. "The test MUST fail (red) because the feature is not implemented yet.",
+			session.description,
+			session.test_cmd
+		)
+		if session.last_result then
+			prompt = prompt
+				.. string.format(
+					"\n\nPrevious test run (exit %d):\n%s\n%s",
+					session.last_result.exit_code,
+					session.last_result.stdout or "",
+					session.last_result.stderr or ""
+				)
+		end
+	elseif session.phase == "implement" then
+		prompt = string.format(
+			"The following test is FAILING. Write the MINIMUM code to make it pass.\n\n"
+				.. "Feature: %s\nTest runner: %s\n\n"
+				.. "Failing test output (exit %d):\n%s\n%s\n\n"
+				.. "Do NOT modify the test. Only write production code to make the test pass.",
+			session.description,
+			session.test_cmd,
+			session.last_result and session.last_result.exit_code or 1,
+			session.last_result and session.last_result.stdout or "",
+			session.last_result and session.last_result.stderr or ""
+		)
+	end
+
+	vim.notify(string.format("[dwight] TDD #%d: %s phase", session.iterations + 1, session.phase), vim.log.levels.INFO)
+
+	require("dwight.agent").run(prompt, {
+		_skip_plan = true,
+		on_complete = function(_success)
+			vim.schedule(function()
+				M._run_tests()
+			end)
+		end,
+	})
 end
 
 function M._run_tests()
@@ -109,6 +185,10 @@ function M._run_tests()
 	local runner = require("dwight.runner")
 
 	runner.run_with_callback(M._session.test_cmd, function(result)
+		if not M._session then
+			return
+		end
+
 		M._session.last_result = result
 		M._session.iterations = M._session.iterations + 1
 
@@ -130,8 +210,36 @@ function M._run_tests()
 			result.exit_code == 0 and vim.log.levels.INFO or vim.log.levels.WARN
 		)
 
-		if result.exit_code == 0 then
-			vim.notify("[dwight] ● All tests pass! TDD session complete.", vim.log.levels.INFO)
+		if M._session.phase == "write_test" then
+			if result.exit_code ~= 0 then
+				-- Red confirmed: advance to implement
+				vim.notify("[dwight] TDD: test fails (red). Moving to implement phase.", vim.log.levels.INFO)
+				M._session.phase = "implement"
+				M._agent_step()
+			else
+				-- Test didn't fail: retry write_test
+				vim.notify("[dwight] TDD: test passes but should fail. Retrying write_test.", vim.log.levels.WARN)
+				M._agent_step()
+			end
+		elseif M._session.phase == "implement" then
+			if result.exit_code == 0 then
+				-- Green confirmed: ask whether to continue
+				vim.notify("[dwight] TDD: tests pass (green)!", vim.log.levels.INFO)
+				vim.ui.select({ "Continue (next feature cycle)", "Stop TDD session" }, {
+					prompt = "All tests pass! Continue TDD?",
+				}, function(choice)
+					if choice == "Continue (next feature cycle)" then
+						M._session.phase = "write_test"
+						M._agent_step()
+					else
+						M.stop()
+					end
+				end)
+			else
+				-- Still failing: retry implement
+				vim.notify("[dwight] TDD: tests still failing. Retrying implement.", vim.log.levels.WARN)
+				M._agent_step()
+			end
 		end
 	end)
 end

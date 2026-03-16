@@ -91,13 +91,20 @@ The marketplace detects your project type and recommends skill packs.
 |------|--------------|--------|
 | **Go API Server** | `go.mod` | `@go-api-design`, `@go-concurrency` |
 | **React Application** | `package.json` with react | `@react-components`, `@react-hooks` |
-| **Python ML** | torch/tensorflow in requirements | `@ml-pipeline` |
-| **Rust Application** | `Cargo.toml` | `@rust-patterns` |
-| **TypeScript Backend** | `tsconfig.json` | `@ts-api-patterns` |
-| **Docker & DevOps** | `Dockerfile` | `@docker-patterns` |
-| **Neovim Plugin** | `lua/` directory | `@neovim-lua` |
+| **Python ML** | torch/tensorflow in requirements | `@ml-pipeline`, `@model-evaluation` |
+| **Rust Application** | `Cargo.toml` | `@rust-patterns`, `@rust-async` |
+| **TypeScript Backend** | `tsconfig.json` | `@ts-api-patterns`, `@ts-testing-patterns` |
+| **Docker & DevOps** | `Dockerfile` | `@docker-patterns`, `@ci-cd-patterns` |
+| **Neovim Plugin** | `lua/` directory | `@neovim-lua`, `@neovim-testing` |
+| **UI Design Workflow** | react/nextjs/vue project | `@ui-ux-guidelines`, `@accessibility-checklist` |
+| **API Backend** | node/typescript/go/python | `@api-security`, `@api-versioning` |
+| **Data Pipeline** | python/ml project | `@data-pipeline-patterns`, `@data-observability` |
+| **Java Spring Boot** | `pom.xml`, `build.gradle` | `@spring-boot-patterns`, `@java-testing` |
+| **Python Web** | fastapi/django in requirements | `@fastapi-patterns`, `@django-patterns` |
+| **Testing Fundamentals** | node/typescript/python/go/rust/java | `@test-strategy`, `@mocking-patterns` |
+| **DevOps Infrastructure** | `Dockerfile`, `main.tf`, `terraform/` | `@kubernetes-patterns`, `@terraform-patterns` |
 
-Detection scans 30+ manifest files. For Node projects, reads `package.json` for frameworks. For Python, checks `pyproject.toml` and `requirements.txt`.
+Detection scans 30+ manifest files and directories (including `main.tf` for Terraform). For Node projects, reads `package.json` for frameworks. For Python, checks `pyproject.toml` and `requirements.txt`.
 
 ---
 
