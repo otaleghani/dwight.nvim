@@ -98,7 +98,7 @@ function M.start(test_cmd)
 		started = os.time(),
 	}
 
-	vim.notify("[dwight] 🔴 TDD session started: " .. test_cmd, vim.log.levels.INFO)
+	vim.notify("[dwight] ✗ TDD session started: " .. test_cmd, vim.log.levels.INFO)
 	M._run_tests()
 end
 
@@ -116,7 +116,7 @@ function M._run_tests()
 		M._save_run(result)
 
 		local pass_count, fail_count = M._parse_test_counts(result)
-		local icon = result.exit_code == 0 and "🟢" or "🔴"
+		local icon = result.exit_code == 0 and "●" or "✗"
 
 		vim.notify(
 			string.format(
@@ -131,7 +131,7 @@ function M._run_tests()
 		)
 
 		if result.exit_code == 0 then
-			vim.notify("[dwight] 🟢 All tests pass! TDD session complete.", vim.log.levels.INFO)
+			vim.notify("[dwight] ● All tests pass! TDD session complete.", vim.log.levels.INFO)
 		end
 	end)
 end
@@ -287,11 +287,11 @@ function M.browse_runs()
 
 		pickers
 			.new({}, {
-				prompt_title = "🧪 Test Runs (newest first)",
+				prompt_title = "Test Runs (newest first)",
 				finder = finders.new_table({
 					results = files,
 					entry_maker = function(name)
-						local icon = name:match("_pass%.txt$") and "🟢" or "🔴"
+						local icon = name:match("_pass%.txt$") and "●" or "✗"
 						return { value = dir .. "/" .. name, display = icon .. " " .. name, ordinal = name }
 					end,
 				}),

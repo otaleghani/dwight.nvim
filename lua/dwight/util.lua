@@ -97,6 +97,7 @@ function M.apply_tui_syntax(buf)
         syntax match DwightFail /.*✗.*/
         syntax match DwightSkip /.*○.*/
         syntax match DwightCost /\$[0-9,.]\+/
+        syntax match DwightWarn /◐/
         syntax match DwightOK /[█░]\+/
       ]])
 		end)

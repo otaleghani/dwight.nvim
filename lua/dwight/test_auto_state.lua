@@ -3,12 +3,16 @@
 
 vim.opt.rtp:prepend(vim.fn.getcwd())
 
-local auto = require("dwight.auto")
 local T = _T
 
 -- Use a temp directory for state files so tests don't affect real sessions
 local test_dir = vim.fn.tempname()
 vim.fn.mkdir(test_dir, "p")
+
+-- Clear cached modules so the preload hook takes effect even when
+-- test_auto_state runs after other test files that already required these.
+package.loaded["dwight.project"] = nil
+package.loaded["dwight.auto"] = nil
 
 -- Monkey-patch the auto_dir function to use our temp dir
 -- (auto_dir is local, but _save_state/_load_state/_clear_state are public)
@@ -23,6 +27,8 @@ package.preload["dwight.project"] = function()
 		end,
 	}
 end
+
+local auto = require("dwight.auto")
 
 io.write("── auto state: save/load/clear ──\n")
 

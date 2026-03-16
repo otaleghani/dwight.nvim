@@ -369,6 +369,15 @@ function M.build_full_context()
 		parts[#parts + 1] = pragma_inst
 	end
 
+	-- Kit instructions
+	pcall(function()
+		local kits = require("dwight.marketplace.kits")
+		local kit_ctx = kits.build_instructions_context()
+		if kit_ctx then
+			parts[#parts + 1] = kit_ctx
+		end
+	end)
+
 	if #parts == 0 then
 		return nil
 	end

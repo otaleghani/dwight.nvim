@@ -134,9 +134,34 @@ function M.register()
 	end, {
 		nargs = "?",
 		complete = function()
-			return { "install", "suggest", "export", "import", "detect" }
+			return { "install", "suggest", "export", "import", "detect", "kits", "toggle", "uninstall" }
 		end,
-		desc = "Skill marketplace: browse packs, auto-suggest, import/export",
+		desc = "Skill marketplace: browse packs, kits, auto-suggest, import/export",
+	})
+
+	cmd("DwightKitStatus", function()
+		require_mod("marketplace").kit_status()
+	end, { desc = "List installed kits with active/inactive state and MCP server status" })
+
+	cmd("DwightKitToggle", function(o)
+		local name = vim.trim(o.args or "")
+		if name == "" then
+			require_mod("marketplace").kit_toggle_interactive()
+		else
+			require("dwight.marketplace.kits").toggle(name)
+		end
+	end, {
+		nargs = "?",
+		complete = function()
+			local ok, kits = pcall(require, "dwight.marketplace.kits")
+			if not ok then
+				return {}
+			end
+			return vim.tbl_map(function(k)
+				return k.name
+			end, kits.installed())
+		end,
+		desc = "Enable/disable a kit (with completion from installed kit names)",
 	})
 	cmd("DwightDocsFromURL", function()
 		require_mod("skill_fetch").generate_from_url()

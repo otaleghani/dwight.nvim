@@ -55,6 +55,7 @@ M.DETECTORS = {
 	{ file = "docker-compose.yml", type = "docker", lang = "Docker" },
 	{ file = "docker-compose.yaml", type = "docker", lang = "Docker" },
 	-- Terraform
+	{ file = "main.tf", type = "terraform", lang = "Terraform" },
 	{ dir = "terraform", type = "terraform", lang = "Terraform" },
 	-- ML/Data
 	{ dir = "notebooks", type = "ml", lang = "Python ML" },

@@ -425,7 +425,7 @@ function M.get(name)
 		if code then
 			return vim.tbl_extend("force", code, {
 				name = "Code (+run)",
-				icon = "🔴",
+				icon = "✗",
 				inject_run_output = true,
 			})
 		end
@@ -477,7 +477,7 @@ end
 function M.register(name, mode)
 	assert(mode.task, "Mode must have a 'task' field")
 	mode.name = mode.name or name
-	mode.icon = mode.icon or "🔹"
+	mode.icon = mode.icon or "◆"
 	mode.description = mode.description or ""
 	mode.context = mode.context or "both"
 	M.registry[name] = mode

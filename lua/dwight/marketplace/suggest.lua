@@ -39,7 +39,7 @@ function M.auto_suggest()
 	end
 
 	-- Build suggestion
-	local parts = { string.format("[dwight] 💡 Detected: %s", table.concat(detected.langs, ", ")) }
+	local parts = { string.format("[dwight] Detected: %s", table.concat(detected.langs, ", ")) }
 	parts[#parts + 1] = "  Recommended skill packs:"
 	local items = {}
 	for _, m in ipairs(new_matches) do
@@ -48,8 +48,8 @@ function M.auto_suggest()
 			local tag = already_set[s.name] and " (installed)" or ""
 			skill_names[#skill_names + 1] = "@" .. s.name .. tag
 		end
-		parts[#parts + 1] = string.format("    📦 %s — %s", m.pack.display, table.concat(skill_names, ", "))
-		items[#items + 1] = string.format("📦 %s — %s", m.pack.display, m.pack.description)
+		parts[#parts + 1] = string.format("    ○ %s — %s", m.pack.display, table.concat(skill_names, ", "))
+		items[#items + 1] = string.format("○ %s — %s", m.pack.display, m.pack.description)
 	end
 
 	vim.notify(table.concat(parts, "\n"), vim.log.levels.INFO)

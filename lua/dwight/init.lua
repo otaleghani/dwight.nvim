@@ -88,6 +88,14 @@ M.defaults = {
 	--     java = { detect = {"pom.xml"}, test_cmd = "mvn test -q", build_cmd = "mvn compile -q" },
 	--   }
 	languages = {},
+
+	-- Custom modes: register project-specific modes at setup time.
+	-- Each key is the mode name, value is a mode table (must have `task`).
+	-- Example:
+	--   modes = {
+	--     deploy = { task = "Generate deployment script for ...", context = "code" },
+	--   }
+	modes = {},
 }
 
 M.config = {}
@@ -134,6 +142,14 @@ function M.setup(opts)
 		require_mod("languages").reset()
 	end)
 
+	-- Register custom modes from config
+	if M.config.modes then
+		local modes_mod = require_mod("modes")
+		for name, mode in pairs(M.config.modes) do
+			modes_mod.register(name, mode)
+		end
+	end
+
 	-- Sync tracker model with backend config
 	pcall(function()
 		local model_map = {
@@ -157,7 +173,23 @@ function M.setup(opts)
 	-- Start MCP servers
 	if #M.config.mcp_servers > 0 then
 		require_mod("mcp").setup(M.config)
-		-- Cleanup on exit
+	end
+
+	-- Start kit MCP servers
+	pcall(function()
+		if require_mod("project").is_initialized() then
+			local kit_servers = require("dwight.marketplace.kits").active_mcp_servers()
+			if #kit_servers > 0 then
+				local mcp = require_mod("mcp")
+				for _, srv in ipairs(kit_servers) do
+					mcp.start_server(srv.name, srv)
+				end
+			end
+		end
+	end)
+
+	-- Cleanup MCP on exit
+	if #M.config.mcp_servers > 0 then
 		vim.api.nvim_create_autocmd("VimLeavePre", {
 			callback = function()
 				pcall(function()

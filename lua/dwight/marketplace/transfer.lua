@@ -1,9 +1,9 @@
 -- dwight/marketplace/transfer.lua
--- Export / import skill bundles.
+-- Export / import skill bundles (with kit support).
 
 local M = {}
 
---- Export current skills as a shareable JSON bundle.
+--- Export current skills (and kits) as a shareable JSON bundle.
 --- Returns the output path.
 function M.export_skills()
 	local project = require("dwight.project")
@@ -18,8 +18,13 @@ function M.export_skills()
 		return nil
 	end
 
+	-- Check for installed kits
+	local kits_mod = require("dwight.marketplace.kits")
+	local installed_kits = kits_mod.installed()
+	local has_kits = #installed_kits > 0
+
 	local bundle = {
-		format = "dwight-skills-v1",
+		format = has_kits and "dwight-kit-v1" or "dwight-skills-v1",
 		exported_at = os.date("%Y-%m-%dT%H:%M:%S"),
 		project = vim.fn.getcwd():match("([^/]+)$") or "unknown",
 		skills = {},
@@ -37,6 +42,11 @@ function M.export_skills()
 		end
 	end
 
+	-- Include kit metadata if present
+	if has_kits then
+		bundle.kits = installed_kits
+	end
+
 	local path = project.dir() .. "/skills-bundle.json"
 	local ok, json = pcall(vim.json.encode, bundle)
 	if ok then
@@ -44,10 +54,12 @@ function M.export_skills()
 		if f then
 			f:write(json .. "\n")
 			f:close()
-			vim.notify(
-				string.format("[dwight] ✅ Exported %d skills to %s", #bundle.skills, path),
-				vim.log.levels.INFO
-			)
+			local msg = string.format("[dwight] Exported %d skills", #bundle.skills)
+			if has_kits then
+				msg = msg .. string.format(" + %d kit(s)", #installed_kits)
+			end
+			msg = msg .. " to " .. path
+			vim.notify(msg, vim.log.levels.INFO)
 			return path
 		end
 	end
@@ -56,7 +68,7 @@ function M.export_skills()
 	return nil
 end
 
---- Import skills from a JSON bundle file.
+--- Import skills (and kits) from a JSON bundle file.
 function M.import_skills(path)
 	local project = require("dwight.project")
 	if not project.is_initialized() then
@@ -73,8 +85,14 @@ function M.import_skills(path)
 	f:close()
 
 	local ok, bundle = pcall(vim.json.decode, raw)
-	if not ok or type(bundle) ~= "table" or bundle.format ~= "dwight-skills-v1" then
-		vim.notify("[dwight] Invalid skill bundle format.", vim.log.levels.ERROR)
+	if not ok or type(bundle) ~= "table" then
+		vim.notify("[dwight] Invalid bundle format.", vim.log.levels.ERROR)
+		return
+	end
+
+	-- Accept both legacy and new format
+	if bundle.format ~= "dwight-skills-v1" and bundle.format ~= "dwight-kit-v1" then
+		vim.notify("[dwight] Unknown bundle format: " .. tostring(bundle.format), vim.log.levels.ERROR)
 		return
 	end
 
@@ -97,7 +115,7 @@ function M.import_skills(path)
 		end
 	end
 
-	local msg = string.format("[dwight] ✅ Imported %d skills", #imported)
+	local msg = string.format("[dwight] Imported %d skills", #imported)
 	if #imported > 0 then
 		msg = msg .. ": " .. table.concat(
 			vim.tbl_map(function(n)
@@ -109,6 +127,28 @@ function M.import_skills(path)
 	if #skipped > 0 then
 		msg = msg .. string.format("\n  Skipped %d (already exist): %s", #skipped, table.concat(skipped, ", "))
 	end
+
+	-- Import kit metadata
+	local kit_imported = 0
+	if bundle.format == "dwight-kit-v1" and bundle.kits then
+		local kits_mod = require("dwight.marketplace.kits")
+		local state = kits_mod.load()
+		local existing = {}
+		for _, k in ipairs(state.installed) do
+			existing[k.name] = true
+		end
+		for _, kit in ipairs(bundle.kits) do
+			if not existing[kit.name] then
+				state.installed[#state.installed + 1] = kit
+				kit_imported = kit_imported + 1
+			end
+		end
+		if kit_imported > 0 then
+			kits_mod.save(state)
+			msg = msg .. string.format("\n  Imported %d kit(s)", kit_imported)
+		end
+	end
+
 	vim.notify(msg, vim.log.levels.INFO)
 end
 

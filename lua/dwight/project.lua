@@ -30,6 +30,10 @@ function M.tracker_file()
 	return M.dir() .. "/usage.json"
 end
 
+function M.kits_file()
+	return M.dir() .. "/kits.json"
+end
+
 function M.builtin_dir()
 	local info = debug.getinfo(1, "S")
 	if info and info.source then
