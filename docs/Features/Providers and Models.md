@@ -54,7 +54,7 @@ Providers handle API calls for non-agentic operations. Dwight ships with five bu
 |----------|-------------|--------|
 | `anthropic` | `ANTHROPIC_API_KEY` | sonnet, haiku, opus |
 | `anthropic_max` | OAuth (`:DwightAuthMax`) | sonnet, haiku, opus |
-| `openai` | `OPENAI_API_KEY` | gpt4o, gpt4o-mini, o3, o4-mini, gpt5, gpt4.1, gpt4.1-mini, codex-mini |
+| `openai` | `OPENAI_API_KEY` | gpt4o, gpt4o-mini, o1, o3, o3-mini, o4-mini, gpt5, gpt5-mini, gpt5-nano, gpt5-codex, gpt5.1, gpt5.1-mini, gpt5.1-codex, gpt5.1-codex-max, gpt5.2, gpt5.3-codex, gpt5.4, gpt4.1, gpt4.1-mini, gpt4.1-nano, codex-mini |
 | `gemini` | `GEMINI_API_KEY` | flash, pro |
 | `openrouter` | `OPENROUTER_API_KEY` | sonnet, haiku, opus, gpt4o, flash |
 
