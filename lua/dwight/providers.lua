@@ -59,6 +59,9 @@ M.presets = {
 			["o3"] = "o3",
 			["o4-mini"] = "o4-mini",
 			["gpt5"] = "gpt-5",
+			["gpt4.1"] = "gpt-4.1",
+			["gpt4.1-mini"] = "gpt-4.1-mini",
+			["codex-mini"] = "codex-mini-latest",
 		},
 		default_model = "gpt4o",
 	},
@@ -269,7 +272,7 @@ function M.resolve_model(model_str)
 	-- literal model string — infer provider
 	if model_str:match("^claude") or model_str:match("^anthropic") then
 		return { provider_name = "anthropic", provider = M._providers.anthropic, model_id = model_str }
-	elseif model_str:match("^gpt") or model_str:match("^o%d") then
+	elseif model_str:match("^gpt") or model_str:match("^o%d") or model_str:match("^codex%-") then
 		return { provider_name = "openai", provider = M._providers.openai, model_id = model_str }
 	elseif model_str:match("^gemini") then
 		return { provider_name = "gemini", provider = M._providers.gemini, model_id = model_str }

@@ -54,7 +54,7 @@ Providers handle API calls for non-agentic operations. Dwight ships with five bu
 |----------|-------------|--------|
 | `anthropic` | `ANTHROPIC_API_KEY` | sonnet, haiku, opus |
 | `anthropic_max` | OAuth (`:DwightAuthMax`) | sonnet, haiku, opus |
-| `openai` | `OPENAI_API_KEY` | gpt4o, gpt4o-mini, o3, o4-mini, gpt5 |
+| `openai` | `OPENAI_API_KEY` | gpt4o, gpt4o-mini, o3, o4-mini, gpt5, gpt4.1, gpt4.1-mini, codex-mini |
 | `gemini` | `GEMINI_API_KEY` | flash, pro |
 | `openrouter` | `OPENROUTER_API_KEY` | sonnet, haiku, opus, gpt4o, flash |
 
@@ -71,6 +71,18 @@ Auto-detection: if no provider is set, Dwight checks environment variables and p
 ```
 
 Tab completion shows only models available for your current backend. For `claude_code`, the options are `haiku`, `sonnet`, and `opus` — the CLI handles auth, no API key needed.
+
+You can also pass any raw model ID directly — no source-code changes needed. Dwight infers the provider from the model string prefix:
+
+```vim
+:DwightSwitch gpt-4.1-nano          " Any gpt-* → OpenAI
+:DwightSwitch codex-mini-latest     " Any codex-* → OpenAI
+:DwightSwitch o3-mini               " Any o<digit>* → OpenAI
+:DwightSwitch claude-3-5-haiku      " Any claude-* → Anthropic
+:DwightSwitch gemini-2.0-flash      " Any gemini-* → Gemini
+```
+
+For providers that do not match a known prefix, use `:DwightAddProvider` to register a named alias, or use the `provider:model-id` syntax (e.g. `openai:some-new-model`).
 
 ---
 
