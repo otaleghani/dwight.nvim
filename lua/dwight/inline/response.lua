@@ -181,6 +181,19 @@ function M.handle_response(job_id, raw_output, err_output, exit_code, selection,
 				jobs.adjust_other_jobs(job_id, bufnr, cur_start, cur_end, #new_lines)
 				log.finish(job_id, "success", raw_output, content, nil)
 				pcall(function()
+					get_dwight()._last_inline = {
+						job_id = job_id,
+						prompt_text = prompt_text,
+						raw_response = raw_output,
+						parsed_code = content,
+						selection = selection,
+						mode_name = mode_name,
+						new_start = cur_start,
+						new_end = cur_start + #new_lines - 1,
+						bufnr = bufnr,
+					}
+				end)
+				pcall(function()
 					require("dwight.tracker").record(mode_name or "prose", #prompt_text, #raw_output)
 				end)
 				vim.notify("[dwight] Job #" .. job_id .. " accepted.", vim.log.levels.INFO)
@@ -192,6 +205,19 @@ function M.handle_response(job_id, raw_output, err_output, exit_code, selection,
 			buffer._replace_selection_atomic(bufnr, cur_start, cur_end, content)
 			jobs.adjust_other_jobs(job_id, bufnr, cur_start, cur_end, #new_lines)
 			log.finish(job_id, "success", raw_output, content, nil)
+			pcall(function()
+				get_dwight()._last_inline = {
+					job_id = job_id,
+					prompt_text = prompt_text,
+					raw_response = raw_output,
+					parsed_code = content,
+					selection = selection,
+					mode_name = mode_name,
+					new_start = cur_start,
+					new_end = cur_start + #new_lines - 1,
+					bufnr = bufnr,
+				}
+			end)
 			pcall(function()
 				require("dwight.tracker").record(mode_name or "prose", #prompt_text, #raw_output)
 			end)
@@ -361,6 +387,19 @@ function M._apply_parsed(
 			jobs.adjust_other_jobs(job_id, bufnr, cur_start, cur_end, #new_lines)
 			log.finish(job_id, "success", raw_output, parsed_code, nil)
 			pcall(function()
+				get_dwight()._last_inline = {
+					job_id = job_id,
+					prompt_text = prompt_text,
+					raw_response = raw_output,
+					parsed_code = parsed_code,
+					selection = selection,
+					mode_name = mode_name,
+					new_start = cur_start,
+					new_end = cur_start + #new_lines - 1,
+					bufnr = bufnr,
+				}
+			end)
+			pcall(function()
 				require("dwight.tracker").record(mode_name or "custom", #prompt_text, #raw_output)
 			end)
 			vim.notify("[dwight] Job #" .. job_id .. " accepted.", vim.log.levels.INFO)
@@ -376,6 +415,19 @@ function M._apply_parsed(
 	jobs.adjust_other_jobs(job_id, bufnr, cur_start, cur_end, #new_lines)
 
 	log.finish(job_id, "success", raw_output, parsed_code, nil)
+	pcall(function()
+		get_dwight()._last_inline = {
+			job_id = job_id,
+			prompt_text = prompt_text,
+			raw_response = raw_output,
+			parsed_code = parsed_code,
+			selection = selection,
+			mode_name = mode_name,
+			new_start = cur_start,
+			new_end = cur_start + #new_lines - 1,
+			bufnr = bufnr,
+		}
+	end)
 	pcall(function()
 		require("dwight.tracker").record(mode_name or "custom", #prompt_text, #raw_output)
 	end)

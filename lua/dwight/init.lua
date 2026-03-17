@@ -100,6 +100,7 @@ M.defaults = {
 
 M.config = {}
 M._active_jobs = {}
+M._last_inline = nil
 
 --------------------------------------------------------------------
 -- Setup
@@ -307,6 +308,43 @@ function M.invoke_mode(mode_name, opts)
 	local ctx = require_mod("lsp").gather_context(selection)
 	local prompt_text = require_mod("prompt").build(mode, selection, ctx)
 	require_mod("inline").run(prompt_text, selection, M.config, mode_name)
+end
+
+--------------------------------------------------------------------
+-- Follow-up: refine the last inline edit
+--------------------------------------------------------------------
+
+function M.follow_up()
+	local prev = M._last_inline
+	if not prev then
+		vim.notify("[dwight] No previous inline edit to follow up on.", vim.log.levels.WARN)
+		return
+	end
+
+	local bufnr = prev.bufnr
+	if not vim.api.nvim_buf_is_valid(bufnr) then
+		vim.notify("[dwight] Buffer from last edit is no longer valid.", vim.log.levels.WARN)
+		return
+	end
+
+	local line_count = vim.api.nvim_buf_line_count(bufnr)
+	local start_line = math.min(prev.new_start, line_count)
+	local end_line = math.min(prev.new_end, line_count)
+
+	local lines = vim.api.nvim_buf_get_lines(bufnr, start_line - 1, end_line, false)
+	local current_code = table.concat(lines, "\n")
+
+	local selection = {
+		bufnr = bufnr,
+		start_line = start_line,
+		end_line = end_line,
+		text = current_code,
+		lines = lines,
+		filetype = prev.selection.filetype,
+		filepath = prev.selection.filepath,
+	}
+
+	require_mod("ui").open_prompt(selection, { follow_up = prev, current_code = current_code })
 end
 
 --------------------------------------------------------------------

@@ -23,9 +23,6 @@ function M._replace_selection_atomic(bufnr, start_line, end_line, new_text)
 		end_line = current_line_count
 	end
 
-	if vim.api.nvim_get_current_buf() == bufnr then
-		pcall(vim.cmd, "undojoin")
-	end
 	vim.api.nvim_buf_set_lines(bufnr, start_line - 1, end_line, false, new_lines)
 	vim.o.eventignore = eventignore
 

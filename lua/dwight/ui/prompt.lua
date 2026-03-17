@@ -111,6 +111,28 @@ function M.open_prompt(selection, opts)
 	end
 	api.nvim_buf_set_lines(buf, 0, -1, false, content)
 
+	local win_title
+	local win_footer
+	if opts.follow_up then
+		win_title = " dwight:follow-up "
+		win_footer = {
+			{ " follow-up ", "DwightMode" },
+			{ " · ", "FloatBorder" },
+			{ file_info, "DwightFile" },
+			{ " · ", "FloatBorder" },
+			{ model_display, "DwightModel" },
+		}
+	else
+		win_title = dispatch == "invoke" and " dwight " or (" dwight:" .. dispatch .. " ")
+		win_footer = {
+			{ " " .. file_info, "DwightFile" },
+			{ " · ", "FloatBorder" },
+			{ model_display, "DwightModel" },
+			{ " · ", "FloatBorder" },
+			{ ":H help ", "Comment" },
+		}
+	end
+
 	local win = api.nvim_open_win(buf, true, {
 		relative = "editor",
 		width = width,
@@ -119,15 +141,9 @@ function M.open_prompt(selection, opts)
 		col = col,
 		style = "minimal",
 		border = cfg.border,
-		title = dispatch == "invoke" and " dwight " or (" dwight:" .. dispatch .. " "),
+		title = win_title,
 		title_pos = "center",
-		footer = {
-			{ " " .. file_info, "DwightFile" },
-			{ " · ", "FloatBorder" },
-			{ model_display, "DwightModel" },
-			{ " · ", "FloatBorder" },
-			{ ":H help ", "Comment" },
-		},
+		footer = win_footer,
 		footer_pos = "center",
 	})
 
@@ -322,6 +338,16 @@ function M.open_prompt(selection, opts)
 
 			if raw_text == "" then
 				vim.notify("[dwight] Empty prompt.", vim.log.levels.INFO)
+				return
+			end
+
+			-- Follow-up: build prompt from previous exchange + new instruction
+			if opts.follow_up then
+				vim.schedule(function()
+					local prompt_text =
+						require("dwight.prompt").build_follow_up(raw_text, opts.follow_up, opts.current_code)
+					require("dwight.inline").run(prompt_text, selection, cfg, opts.follow_up.mode_name or "custom")
+				end)
 				return
 			end
 

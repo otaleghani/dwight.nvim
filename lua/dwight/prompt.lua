@@ -522,6 +522,43 @@ function M.build_freeform(
 	)
 end
 
+--- Build a follow-up prompt that refines a previous inline edit.
+--- @param follow_up_text string  The user's refinement instruction
+--- @param prev table  The _last_inline state (prompt_text, raw_response, etc.)
+--- @param current_code string  The current code at the edit range
+function M.build_follow_up(follow_up_text, prev, current_code)
+	local parts = {}
+
+	parts[#parts + 1] = "<previous_exchange>"
+	parts[#parts + 1] = "<request>"
+	parts[#parts + 1] = prev.prompt_text
+	parts[#parts + 1] = "</request>"
+	parts[#parts + 1] = "<response>"
+	parts[#parts + 1] = prev.raw_response
+	parts[#parts + 1] = "</response>"
+	parts[#parts + 1] = "</previous_exchange>"
+
+	parts[#parts + 1] = ""
+	parts[#parts + 1] = "<current_code>"
+	parts[#parts + 1] = current_code
+	parts[#parts + 1] = "</current_code>"
+
+	parts[#parts + 1] = ""
+	parts[#parts + 1] = "<follow_up>"
+	parts[#parts + 1] = follow_up_text
+	parts[#parts + 1] = "</follow_up>"
+
+	parts[#parts + 1] = ""
+	parts[#parts + 1] = [[<rules>
+1. Reply with ONLY a fenced code block. Nothing else.
+2. Output is a drop-in replacement for the current code shown above.
+3. Apply the follow-up instruction to refine the previous result.
+4. Do not add explanations, comments about changes, or anything outside the code fence.
+</rules>]]
+
+	return table.concat(parts, "\n")
+end
+
 --- Build an analysis-only prompt for ^3+ multi-pass.
 --- Returns the prompt with ANALYSIS_PROMPT prepended and no code-output rules.
 function M.build_analysis(base_prompt, pass_number)

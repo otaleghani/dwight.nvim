@@ -45,6 +45,11 @@ function M.register()
 		desc = "Cancel job(s)",
 	})
 
+	-- Follow-up: refine last inline edit
+	cmd("DwightFollowUp", function()
+		dwight.follow_up()
+	end, { desc = "Refine the last inline edit" })
+
 	-- Dot-repeat: replay last operation on new selection
 	cmd("DwightRepeat", function(o)
 		dwight.dot_repeat({ range = o.range })
