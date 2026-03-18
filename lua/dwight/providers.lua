@@ -54,13 +54,29 @@ M.presets = {
 		auth_header = "Authorization",
 		auth_prefix = "Bearer ",
 		models = {
-			["gpt4o"] = "gpt-4o",
-			["gpt4o-mini"] = "gpt-4o-mini",
+			["gpt-4o"] = "gpt-4o",
+			["gpt-4o-mini"] = "gpt-4o-mini",
+			["o1"] = "o1",
 			["o3"] = "o3",
+			["o3-mini"] = "o3-mini",
 			["o4-mini"] = "o4-mini",
-			["gpt5"] = "gpt-5",
+			["gpt-5"] = "gpt-5",
+			["gpt-5-mini"] = "gpt-5-mini",
+			["gpt-5-nano"] = "gpt-5-nano",
+			["gpt-5-codex"] = "gpt-5-codex",
+			["gpt-5.1"] = "gpt-5.1",
+			["gpt-5.1-mini"] = "gpt-5.1-mini",
+			["gpt-5.1-codex"] = "gpt-5.1-codex",
+			["gpt-5.1-codex-max"] = "gpt-5.1-codex-max",
+			["gpt-5.2"] = "gpt-5.2",
+			["gpt-5.3-codex"] = "gpt-5.3-codex",
+			["gpt-5.4"] = "gpt-5.4",
+			["gpt-4.1"] = "gpt-4.1",
+			["gpt-4.1-mini"] = "gpt-4.1-mini",
+			["gpt-4.1-nano"] = "gpt-4.1-nano",
+			["codex-mini-latest"] = "codex-mini-latest",
 		},
-		default_model = "gpt4o",
+		default_model = "gpt-4o",
 	},
 
 	gemini = {
@@ -92,7 +108,7 @@ M.presets = {
 			["sonnet"] = "anthropic/claude-sonnet-4-20250514",
 			["haiku"] = "anthropic/claude-haiku-4-5-20251001",
 			["opus"] = "anthropic/claude-opus-4-6",
-			["gpt4o"] = "openai/gpt-4o",
+			["gpt-4o"] = "openai/gpt-4o",
 			["flash"] = "google/gemini-2.5-flash",
 		},
 		default_model = "sonnet",
@@ -269,7 +285,7 @@ function M.resolve_model(model_str)
 	-- literal model string — infer provider
 	if model_str:match("^claude") or model_str:match("^anthropic") then
 		return { provider_name = "anthropic", provider = M._providers.anthropic, model_id = model_str }
-	elseif model_str:match("^gpt") or model_str:match("^o%d") then
+	elseif model_str:match("^gpt") or model_str:match("^o%d") or model_str:match("^codex%-") then
 		return { provider_name = "openai", provider = M._providers.openai, model_id = model_str }
 	elseif model_str:match("^gemini") then
 		return { provider_name = "gemini", provider = M._providers.gemini, model_id = model_str }
@@ -672,14 +688,20 @@ end
 --- For "api": only providers with a valid API key.
 --- For "claude_code": Anthropic models (no API key needed, claude CLI handles auth).
 --- For "opencode": all configured models (opencode manages its own keys).
-function M.available_models_for_backend()
+function M.available_models_for_backend(arglead)
 	local cfg = require("dwight").config
 	local backend = cfg.backend or "api"
 
 	if backend == "claude_code" then
 		-- Claude Code supports these models via --model flag.
 		-- No API key or provider lookup needed — claude CLI handles auth.
-		return { "haiku", "opus", "sonnet" }
+		local models = { "haiku", "opus", "sonnet" }
+		if arglead and arglead ~= "" then
+			return vim.tbl_filter(function(n)
+				return vim.startswith(n, arglead)
+			end, models)
+		end
+		return models
 	end
 
 	-- For api/opencode, we need providers loaded
@@ -730,6 +752,11 @@ function M.available_models_for_backend()
 	end
 
 	table.sort(names)
+	if arglead and arglead ~= "" then
+		return vim.tbl_filter(function(n)
+			return vim.startswith(n, arglead)
+		end, names)
+	end
 	return names
 end
 
