@@ -19,7 +19,7 @@ M.defaults = {
 
 	-- Provider settings (for skills.lua single-shot API calls)
 	provider = nil, -- nil = auto (anthropic if key set)
-	model = nil, -- nil = provider default. Or: "sonnet", "openai:gpt4o"
+	model = nil, -- nil = provider default. Or: "sonnet", "openai:gpt-4o"
 	api_key = nil, -- override for active provider
 	max_tokens = 4096,
 
