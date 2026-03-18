@@ -77,6 +77,13 @@ M.defaults = {
 		claude_code_timeout = 600, -- alias for cli_timeout (backwards compat)
 	},
 
+	-- Swarm: parallel multi-agent execution (DwightSwarm)
+	swarm_opts = {
+		max_parallel = 3, -- max agents per wave (caps worktree count)
+		on_partial_failure = "continue", -- "continue" = merge successes, mark failures for retry
+		cleanup_worktrees = true, -- remove worktrees after each wave merge
+	},
+
 	-- MCP servers (list of { name, command, args, env, cwd })
 	mcp_servers = {},
 

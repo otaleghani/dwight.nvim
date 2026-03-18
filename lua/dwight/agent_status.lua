@@ -538,6 +538,128 @@ function M.view_session_log()
 end
 
 --------------------------------------------------------------------
+-- Multi-spinner support (for DwightSwarm parallel agents)
+--------------------------------------------------------------------
+
+-- Map of task_id → { line_num, text, timer }
+M._spinners = {}
+
+--- Start a spinner for a specific task (multi-spinner mode).
+--- Each task_id gets its own animated line in the status buffer.
+function M.spin_multi(task_id, text)
+	if not M._bufnr or not api.nvim_buf_is_valid(M._bufnr) then
+		M.open()
+	end
+
+	local buf = M._bufnr
+	local existing = M._spinners[task_id]
+
+	if existing and existing.timer then
+		-- Update text in place
+		existing.text = text
+		local char = SPINNER[(existing.idx % #SPINNER) + 1]
+		pcall(function()
+			local lc = api.nvim_buf_line_count(buf)
+			if existing.line_num and existing.line_num <= lc then
+				api.nvim_buf_set_lines(
+					buf,
+					existing.line_num - 1,
+					existing.line_num,
+					false,
+					{ "  " .. char .. " " .. text }
+				)
+			end
+		end)
+		return
+	end
+
+	-- Create new spinner line
+	local line_count = api.nvim_buf_line_count(buf)
+	local first = line_count == 1 and api.nvim_buf_get_lines(buf, 0, 1, false)[1] == ""
+
+	local line_num
+	if first then
+		api.nvim_buf_set_lines(buf, 0, 1, false, { "  " .. SPINNER[1] .. " " .. text })
+		line_num = 1
+	else
+		api.nvim_buf_set_lines(buf, line_count, line_count, false, { "  " .. SPINNER[1] .. " " .. text })
+		line_num = line_count + 1
+	end
+
+	local idx = 0
+	local timer = (vim.loop or vim.uv).new_timer()
+	M._spinners[task_id] = { line_num = line_num, text = text, timer = timer, idx = idx }
+
+	timer:start(
+		80,
+		80,
+		vim.schedule_wrap(function()
+			local entry = M._spinners[task_id]
+			if not entry or not M._bufnr or not api.nvim_buf_is_valid(M._bufnr) then
+				if entry and entry.timer then
+					pcall(function()
+						entry.timer:stop()
+						entry.timer:close()
+					end)
+				end
+				M._spinners[task_id] = nil
+				return
+			end
+
+			entry.idx = (entry.idx + 1) % #SPINNER
+			local char = SPINNER[entry.idx + 1]
+			pcall(function()
+				local lc = api.nvim_buf_line_count(M._bufnr)
+				if entry.line_num and entry.line_num <= lc then
+					api.nvim_buf_set_lines(
+						M._bufnr,
+						entry.line_num - 1,
+						entry.line_num,
+						false,
+						{ "  " .. char .. " " .. (entry.text or "") }
+					)
+				end
+			end)
+		end)
+	)
+end
+
+--- Stop a specific task's spinner and replace its line with a final message.
+function M.stop_spin_multi(task_id, final_text)
+	local entry = M._spinners[task_id]
+	if not entry then
+		return
+	end
+
+	if entry.timer then
+		pcall(function()
+			entry.timer:stop()
+			entry.timer:close()
+		end)
+	end
+
+	-- Replace spinner line with final text
+	if final_text and M._bufnr and api.nvim_buf_is_valid(M._bufnr) then
+		pcall(function()
+			local lc = api.nvim_buf_line_count(M._bufnr)
+			if entry.line_num and entry.line_num <= lc then
+				api.nvim_buf_set_lines(M._bufnr, entry.line_num - 1, entry.line_num, false, { "  " .. final_text })
+			end
+		end)
+	end
+
+	M._spinners[task_id] = nil
+end
+
+--- Stop all multi-spinners.
+function M.stop_spin_all()
+	for task_id in pairs(M._spinners) do
+		M.stop_spin_multi(task_id)
+	end
+	M._spinners = {}
+end
+
+--------------------------------------------------------------------
 -- Fold support
 --------------------------------------------------------------------
 

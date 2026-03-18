@@ -380,7 +380,7 @@ function M.open_prompt(selection, opts)
 			end
 
 			vim.schedule(function()
-				if dispatch == "agent" or dispatch == "auto" then
+				if dispatch == "agent" or dispatch == "auto" or dispatch == "swarm" then
 					local request = build_agent_request(
 						parsed.clean_text,
 						parsed,
@@ -390,8 +390,10 @@ function M.open_prompt(selection, opts)
 					)
 					if dispatch == "agent" then
 						require("dwight.agent").run(request, opts.agent_opts or {})
-					else
+					elseif dispatch == "auto" then
 						require("dwight.auto").auto(request)
+					else
+						require("dwight.swarm").swarm(request)
 					end
 				elseif parsed.mode then
 					local mode = require("dwight.modes").get(parsed.mode)

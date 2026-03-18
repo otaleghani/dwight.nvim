@@ -14,10 +14,14 @@ local api = vim.api
 -- Configuration
 --------------------------------------------------------------------
 
--- Active process tracking (for abort/cleanup)
+-- Active process tracking (for abort/cleanup) — single-process API (backward compat)
 M._active_handle = nil -- uv_process_t handle of running agent session
 M._active_pid = nil -- PID for process group kill
 M._active_backend = nil -- "claude_code", "codex", "gemini"
+
+-- Multi-process registry (for DwightSwarm parallel agents)
+-- Maps task_id → { handle, pid, backend }
+M._registry = {}
 
 --------------------------------------------------------------------
 -- Process Management
@@ -55,6 +59,46 @@ function M.abort()
 	M._active_handle = nil
 	M._active_pid = nil
 	M._active_backend = nil
+end
+
+--- Abort a specific registered task by task_id.
+function M.abort_task(task_id)
+	local entry = M._registry[task_id]
+	if not entry then
+		return
+	end
+	local h, pid = entry.handle, entry.pid
+	if h and not h:is_closing() then
+		pcall(function()
+			h:kill("sigterm")
+		end)
+		local kill_timer = uv.new_timer()
+		kill_timer:start(2000, 0, function()
+			kill_timer:close()
+			if h and not h:is_closing() then
+				pcall(function()
+					h:kill("sigkill")
+				end)
+			end
+			if pid then
+				pcall(function()
+					uv.kill(-pid, "sigkill")
+				end)
+				pcall(function()
+					uv.kill(pid, "sigkill")
+				end)
+			end
+		end)
+	end
+	M._registry[task_id] = nil
+end
+
+--- Abort all registered tasks and the single-process active handle.
+function M.abort_all()
+	for task_id in pairs(M._registry) do
+		M.abort_task(task_id)
+	end
+	M.abort()
 end
 
 --------------------------------------------------------------------
@@ -633,7 +677,7 @@ BACKENDS.gemini = {
 
 --- Spawn a CLI agent backend and manage its lifecycle.
 --- @param backend_name string  Key into BACKENDS table
---- @param opts table           { task, context, prev_tasks, cwd, on_status, on_tool, on_complete }
+--- @param opts table           { task, context, prev_tasks, cwd, on_status, on_tool, on_complete, task_id }
 local function spawn_backend(backend_name, opts)
 	local backend = BACKENDS[backend_name]
 	local cfg = require("dwight").config
@@ -706,11 +750,17 @@ local function spawn_backend(backend_name, opts)
 		spawn_opts.env = env
 	end
 
+	local task_id = opts.task_id
 	local handle
 	handle = uv.spawn(bin, spawn_opts, function(code)
-		M._active_handle = nil
-		M._active_pid = nil
-		M._active_backend = nil
+		-- Clean up tracking
+		if task_id then
+			M._registry[task_id] = nil
+		else
+			M._active_handle = nil
+			M._active_pid = nil
+			M._active_backend = nil
+		end
 		if timeout_timer and not timeout_timer:is_closing() then
 			timeout_timer:close()
 		end
@@ -790,9 +840,17 @@ local function spawn_backend(backend_name, opts)
 	end
 
 	-- Track for abort/cleanup
-	M._active_handle = handle
-	M._active_pid = handle:get_pid()
-	M._active_backend = backend_name
+	if task_id then
+		M._registry[task_id] = {
+			handle = handle,
+			pid = handle:get_pid(),
+			backend = backend_name,
+		}
+	else
+		M._active_handle = handle
+		M._active_pid = handle:get_pid()
+		M._active_backend = backend_name
+	end
 
 	-- Start timeout
 	timeout_timer = uv.new_timer()
@@ -805,7 +863,7 @@ local function spawn_backend(backend_name, opts)
 			pcall(function()
 				handle:kill("sigkill")
 			end)
-			local pid = M._active_pid
+			local pid = task_id and (M._registry[task_id] and M._registry[task_id].pid) or M._active_pid
 			if pid then
 				pcall(function()
 					uv.kill(-pid, "sigkill")
@@ -869,6 +927,7 @@ end
 ---   on_status: function,    -- Called with status text
 ---   on_tool: function,      -- Called with tool-use description
 ---   on_complete: function,  -- Called with (success: bool, data: table)
+---   task_id: string|nil,    -- If set, tracked in _registry (for swarm parallel)
 --- }
 function M.run(opts)
 	local on_status = opts.on_status or function() end
@@ -905,6 +964,7 @@ function M.run(opts)
 		on_status = on_status,
 		on_tool = on_tool,
 		on_complete = on_complete,
+		task_id = opts.task_id,
 	})
 end
 

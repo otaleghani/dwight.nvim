@@ -316,6 +316,40 @@ function M.register()
 		require_mod("auto").status()
 	end, { desc = "Show autonomous session status" })
 
+	-- Swarm: parallel multi-agent execution
+	cmd("DwightSwarm", function(o)
+		local request = o.args ~= "" and o.args or nil
+
+		if not request and o.range and o.range > 0 then
+			local sel = dwight._get_selection({ range = o.range })
+			if sel and sel.text and vim.trim(sel.text) ~= "" then
+				request = sel.text
+			end
+		end
+
+		require_mod("swarm").swarm(request)
+	end, {
+		nargs = "?",
+		range = true,
+		desc = "Parallel swarm: decompose into waves of parallel agent tasks",
+	})
+
+	cmd("DwightSwarmResume", function()
+		require_mod("swarm").resume()
+	end, { desc = "Resume from failed/paused swarm wave" })
+
+	cmd("DwightSwarmCancel", function()
+		require_mod("swarm").cancel()
+	end, { desc = "Cancel active swarm session and cleanup worktrees" })
+
+	cmd("DwightSwarmStatus", function()
+		require_mod("swarm").status()
+	end, { desc = "Show swarm session status" })
+
+	cmd("DwightSwarmPause", function()
+		require_mod("swarm").pause()
+	end, { desc = "Pause swarm after the current wave completes" })
+
 	cmd("DwightSquash", function()
 		require_mod("integration").squash()
 	end, { desc = "Squash dwight checkpoint commits into one with smart message" })

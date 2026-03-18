@@ -6,7 +6,10 @@ local M = {}
 local uv = vim.loop or vim.uv
 
 --- Run a git command synchronously. Returns (output, exit_code).
-function M.git_sync(args, timeout_ms)
+--- @param args table Git subcommand + args
+--- @param timeout_ms number|nil Timeout in ms (default 5000)
+--- @param cwd string|nil Working directory (default vim.fn.getcwd())
+function M.git_sync(args, timeout_ms, cwd)
 	local result, code_out, done = nil, nil, false
 	local chunks = {}
 	local stdout = uv.new_pipe(false)
@@ -14,7 +17,7 @@ function M.git_sync(args, timeout_ms)
 	handle = uv.spawn("git", {
 		args = args,
 		stdio = { nil, stdout, nil },
-		cwd = vim.fn.getcwd(),
+		cwd = cwd or vim.fn.getcwd(),
 	}, function(code)
 		if stdout then
 			stdout:close()
