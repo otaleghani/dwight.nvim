@@ -998,14 +998,9 @@ function M.run(opts)
 	local ac = cfg.agentic_opts or {}
 	if ac.reflection then
 		local reflection = require("dwight.reflection")
-		final_on_complete = reflection.wrap(
-			opts,
-			backend_name,
-			function(enhanced_opts)
-				spawn_backend(backend_name, enhanced_opts)
-			end,
-			on_complete
-		)
+		final_on_complete = reflection.wrap(opts, backend_name, function(enhanced_opts)
+			spawn_backend(backend_name, enhanced_opts)
+		end, on_complete)
 	end
 
 	spawn_backend(backend_name, {
