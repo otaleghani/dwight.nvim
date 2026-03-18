@@ -660,6 +660,31 @@ function M.stop_spin_all()
 end
 
 --------------------------------------------------------------------
+-- Structured progress rendering
+--------------------------------------------------------------------
+
+--- Update spinner with structured progress data from MCP.
+--- @param task_id string
+--- @param event table  ProgressEvent from progress.jsonl
+function M.update_progress(task_id, event)
+	local parts = {}
+	local icons = { planning = "P", coding = "C", testing = "T", debugging = "D", reviewing = "R", done = "+" }
+	parts[#parts + 1] = "[" .. (icons[event.phase] or "?") .. "]"
+	if event.percent then
+		parts[#parts + 1] = math.floor(event.percent) .. "%"
+	end
+	if event.message and event.message ~= "" then
+		parts[#parts + 1] = event.message:sub(1, 50)
+	end
+	local text = table.concat(parts, " ")
+	if M._spinners[task_id] then
+		M.spin_multi(task_id, text)
+	else
+		M.spin(text)
+	end
+end
+
+--------------------------------------------------------------------
 -- Fold support
 --------------------------------------------------------------------
 

@@ -206,6 +206,15 @@ function M.setup(opts)
 			end,
 		})
 	end
+
+	-- Cleanup progress watcher on exit
+	vim.api.nvim_create_autocmd("VimLeavePre", {
+		callback = function()
+			pcall(function()
+				require_mod("progress").stop()
+			end)
+		end,
+	})
 end
 
 function M._register_commands()

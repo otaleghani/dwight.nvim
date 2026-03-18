@@ -725,6 +725,20 @@ local function spawn_backend(backend_name, opts)
 	-- Build args from backend
 	local bin, args, env = backend.build_args(prompt, cfg)
 
+	-- Add MCP config for claude_code backend (structured progress)
+	local task_id = opts.task_id
+	if backend_name == "claude_code" then
+		pcall(function()
+			local progress = require("dwight.progress")
+			local tid = task_id or "single"
+			local config_path = progress.inject_mcp_config(tid)
+			if config_path then
+				args[#args + 1] = "--mcp-config"
+				args[#args + 1] = config_path
+			end
+		end)
+	end
+
 	-- Set up pipes
 	local stdout_chunks = {}
 	local stderr_chunks = {}
@@ -750,7 +764,6 @@ local function spawn_backend(backend_name, opts)
 		spawn_opts.env = env
 	end
 
-	local task_id = opts.task_id
 	local handle
 	handle = uv.spawn(bin, spawn_opts, function(code)
 		-- Clean up tracking
@@ -761,6 +774,14 @@ local function spawn_backend(backend_name, opts)
 			M._active_pid = nil
 			M._active_backend = nil
 		end
+		-- Unregister structured progress
+		pcall(function()
+			local progress = require("dwight.progress")
+			progress.unregister(task_id or "single")
+			if not progress.has_registrations() then
+				progress.stop()
+			end
+		end)
 		if timeout_timer and not timeout_timer:is_closing() then
 			timeout_timer:close()
 		end
@@ -850,6 +871,22 @@ local function spawn_backend(backend_name, opts)
 		M._active_handle = handle
 		M._active_pid = handle:get_pid()
 		M._active_backend = backend_name
+	end
+
+	-- Register for structured progress events (Claude Code only)
+	if backend_name == "claude_code" then
+		pcall(function()
+			local progress = require("dwight.progress")
+			local project = require("dwight.project")
+			if project.is_initialized() then
+				local progress_path = project.dir() .. "/progress.jsonl"
+				progress.start(progress_path) -- idempotent
+				local tid = task_id or "single"
+				progress.register(tid, function(event)
+					require("dwight.agent_status").update_progress(tid, event)
+				end)
+			end
+		end)
 	end
 
 	-- Start timeout
