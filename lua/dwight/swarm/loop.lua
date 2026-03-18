@@ -415,6 +415,19 @@ function M.run(waves, start_from, request, master_started, status, prev_wave_res
 	local total_waves = #waves
 	prev_wave_results = prev_wave_results or {}
 
+	-- Truncate scratchpad for fresh sessions
+	if start_from == 1 and #prev_wave_results == 0 then
+		pcall(function()
+			local project = require("dwight.project")
+			if project.is_initialized() then
+				local f = io.open(project.dir() .. "/scratchpad.jsonl", "w")
+				if f then
+					f:close()
+				end
+			end
+		end)
+	end
+
 	local function run_next_wave(idx)
 		if idx > total_waves then
 			-- ALL WAVES DONE

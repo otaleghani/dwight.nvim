@@ -257,6 +257,7 @@ function M._create_gitignore()
 			"plans/",
 			"whiteboard.md",
 			"progress.jsonl",
+			"scratchpad.jsonl",
 			"mcp-config-*.json",
 			"swarm-logs/",
 			"",

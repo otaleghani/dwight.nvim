@@ -214,6 +214,7 @@ function M.inject_mcp_config(task_id)
 					DWIGHT_PLUGIN_DIR = plugin_dir,
 					DWIGHT_PROGRESS_FILE = progress_file,
 					DWIGHT_TASK_ID = task_id,
+					DWIGHT_SCRATCHPAD_FILE = dwight_dir .. "/scratchpad.jsonl",
 				},
 			},
 		},

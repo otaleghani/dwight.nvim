@@ -19,6 +19,7 @@ local json = require("dwight.mcp_json")
 
 local PROGRESS_FILE = os.getenv("DWIGHT_PROGRESS_FILE") or ".dwight/progress.jsonl"
 local TASK_ID = os.getenv("DWIGHT_TASK_ID") or "unknown"
+local SCRATCHPAD_FILE = os.getenv("DWIGHT_SCRATCHPAD_FILE") or ".dwight/scratchpad.jsonl"
 
 --------------------------------------------------------------------
 -- I/O helpers
@@ -96,6 +97,122 @@ local TOOL_SCHEMA = {
 	},
 }
 
+--------------------------------------------------------------------
+-- Tool: report_note / read_notes (cross-agent scratchpad)
+--------------------------------------------------------------------
+
+local REPORT_NOTE_SCHEMA = {
+	name = "report_note",
+	description = "Share a discovery or decision with sibling agents in this swarm session. "
+		.. "Use this to coordinate: interface changes, file quirks, naming decisions, "
+		.. "or anything another agent working in parallel should know.",
+	inputSchema = {
+		type = "object",
+		properties = {
+			key = {
+				type = "string",
+				description = "Short category tag, e.g. 'interface_change', 'naming', 'bug_found'",
+			},
+			value = {
+				type = "string",
+				description = "The note content — what you want siblings to know",
+			},
+		},
+		required = { "key", "value" },
+	},
+}
+
+local READ_NOTES_SCHEMA = {
+	name = "read_notes",
+	description = "Read notes left by sibling agents in this swarm session. "
+		.. "Check this before starting work to see if other agents have shared "
+		.. "discoveries, interface changes, or coordination signals.",
+	inputSchema = {
+		type = "object",
+		properties = {
+			key = {
+				type = "string",
+				description = "Optional: filter notes by this key. Omit to read all notes.",
+			},
+		},
+	},
+}
+
+local function handle_report_note(args)
+	local entry = {
+		agent_id = TASK_ID,
+		key = args.key,
+		value = args.value,
+		ts = os.time(),
+	}
+
+	local f = io.open(SCRATCHPAD_FILE, "a")
+	if f then
+		f:write(json.encode(entry) .. "\n")
+		f:flush()
+		f:close()
+	end
+
+	return {
+		content = {
+			{ type = "text", text = "Note shared: [" .. args.key .. "] " .. args.value },
+		},
+	}
+end
+
+local function handle_read_notes(args)
+	local f = io.open(SCRATCHPAD_FILE, "r")
+	if not f then
+		return {
+			content = {
+				{ type = "text", text = "No notes yet." },
+			},
+		}
+	end
+
+	local data = f:read("*a")
+	f:close()
+
+	if not data or data == "" then
+		return {
+			content = {
+				{ type = "text", text = "No notes yet." },
+			},
+		}
+	end
+
+	local notes = {}
+	for line in data:gmatch("([^\n]+)") do
+		local ok, entry = pcall(json.decode, line)
+		if ok and type(entry) == "table" and entry.key then
+			if not args.key or entry.key == args.key then
+				notes[#notes + 1] = string.format(
+					"[%s] (%s @ %s): %s",
+					entry.key or "?",
+					entry.agent_id or "?",
+					tostring(entry.ts or "?"),
+					entry.value or ""
+				)
+			end
+		end
+	end
+
+	if #notes == 0 then
+		local msg = args.key and ("No notes found for key: " .. args.key) or "No notes yet."
+		return {
+			content = {
+				{ type = "text", text = msg },
+			},
+		}
+	end
+
+	return {
+		content = {
+			{ type = "text", text = table.concat(notes, "\n") },
+		},
+	}
+end
+
 local function handle_report_progress(args)
 	local event = {
 		task_id = TASK_ID,
@@ -158,7 +275,7 @@ local function handle_request(req)
 			jsonrpc = "2.0",
 			id = id,
 			result = {
-				tools = { TOOL_SCHEMA },
+				tools = { TOOL_SCHEMA, REPORT_NOTE_SCHEMA, READ_NOTES_SCHEMA },
 			},
 		})
 	elseif method == "tools/call" then
@@ -168,6 +285,20 @@ local function handle_request(req)
 
 		if tool_name == "report_progress" then
 			local result = handle_report_progress(args)
+			write_response({
+				jsonrpc = "2.0",
+				id = id,
+				result = result,
+			})
+		elseif tool_name == "report_note" then
+			local result = handle_report_note(args)
+			write_response({
+				jsonrpc = "2.0",
+				id = id,
+				result = result,
+			})
+		elseif tool_name == "read_notes" then
+			local result = handle_read_notes(args)
 			write_response({
 				jsonrpc = "2.0",
 				id = id,
@@ -230,4 +361,6 @@ end
 return {
 	_handle_request = handle_request,
 	_handle_report_progress = handle_report_progress,
+	_handle_report_note = handle_report_note,
+	_handle_read_notes = handle_read_notes,
 }
