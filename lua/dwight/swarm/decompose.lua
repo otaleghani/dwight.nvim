@@ -189,17 +189,14 @@ function M._validate_wave(wave)
 end
 
 --------------------------------------------------------------------
--- Decompose a request into waves
+-- Context gathering (shared with planner.lua)
 --------------------------------------------------------------------
 
---- Decompose a complex request into parallel waves of sub-tasks.
---- callback(waves, err)
-function M._decompose(request, callback)
-	-- Reuse auto/decompose.lua's context gathering logic
-	local auto_decompose = require("dwight.auto.decompose")
+--- Gather project context for decomposition prompts.
+--- Returns context_string, go_rules_string
+function M._gather_context(request)
 	local context_parts = {}
 
-	-- Gather project context (same as auto)
 	pcall(function()
 		local ctx = require("dwight.context")
 		local manifest = ctx.build_xml()
@@ -236,7 +233,6 @@ function M._decompose(request, callback)
 		end
 	end)
 
-	-- Skills + libs context
 	pcall(function()
 		local integration = require("dwight.integration")
 		local full_ctx = integration.build_full_context()
@@ -249,7 +245,6 @@ function M._decompose(request, callback)
 		end
 	end)
 
-	-- Exploration (same as auto/decompose)
 	local exploration_parts = {}
 	local cwd = vim.fn.getcwd()
 	local total_exploration_chars = 0
@@ -348,7 +343,6 @@ function M._decompose(request, callback)
 			.. "\n</explored_code>"
 	end
 
-	-- Build prompt
 	local context = #context_parts > 0 and table.concat(context_parts, "\n\n") or "(no context)"
 
 	local go_rules = ""
@@ -358,6 +352,18 @@ function M._decompose(request, callback)
 			break
 		end
 	end
+
+	return context, go_rules
+end
+
+--------------------------------------------------------------------
+-- Decompose a request into waves
+--------------------------------------------------------------------
+
+--- Decompose a complex request into parallel waves of sub-tasks.
+--- callback(waves, err)
+function M._decompose(request, callback)
+	local context, go_rules = M._gather_context(request)
 
 	local prompt = string.format(M.DECOMPOSE_PROMPT, request, context, go_rules)
 

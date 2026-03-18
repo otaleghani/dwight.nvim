@@ -92,7 +92,8 @@ end
 --- @param prev_wave_results table Results from previous waves
 --- @param opts table { max_parallel, cleanup_worktrees, on_partial_failure }
 --- @param callback function(success, wave_result)
-function M._execute_wave(wave, wave_idx, total_waves, request, status, prev_wave_results, opts, callback)
+--- @param plan table|nil Optional SwarmPlan for node status tracking
+function M._execute_wave(wave, wave_idx, total_waves, request, status, prev_wave_results, opts, callback, plan)
 	local worktree = require("dwight.swarm.worktree")
 	local pool = require("dwight.swarm.pool")
 	local gates = require("dwight.gates")
@@ -151,6 +152,7 @@ function M._execute_wave(wave, wave_idx, total_waves, request, status, prev_wave
 				wt_path = wt_path,
 				task_idx = i,
 				files = files,
+				node_id = task.node_id,
 			}
 
 			-- Start spinner for this task
@@ -235,6 +237,20 @@ function M._execute_wave(wave, wave_idx, total_waves, request, status, prev_wave
 						),
 						"DwightFail"
 					)
+				end
+			end
+
+			-- Update plan node statuses
+			if plan then
+				local by_id = {}
+				for _, node in ipairs(plan.nodes) do
+					by_id[node.id] = node
+				end
+				for _, r in ipairs(results) do
+					local nid = r.node_id
+					if nid and by_id[nid] then
+						by_id[nid].status = r.success and "done" or "failed"
+					end
 				end
 			end
 
@@ -404,7 +420,8 @@ end
 --- @param master_started number os.time() when the swarm started
 --- @param status table agent_status module
 --- @param prev_wave_results table Results from previous waves (for resume)
-function M.run(waves, start_from, request, master_started, status, prev_wave_results)
+--- @param plan table|nil Optional SwarmPlan for node status tracking
+function M.run(waves, start_from, request, master_started, status, prev_wave_results, plan)
 	local state_mod = require("dwight.swarm.state")
 	local notify = require("dwight.auto.notify")
 	local swarm = require("dwight.swarm")
@@ -507,6 +524,7 @@ function M.run(waves, start_from, request, master_started, status, prev_wave_res
 			current_wave = idx,
 			started = master_started,
 			wave_results = prev_wave_results,
+			plan = plan,
 		})
 
 		-- Check if paused
@@ -520,6 +538,7 @@ function M.run(waves, start_from, request, master_started, status, prev_wave_res
 				started = master_started,
 				wave_results = prev_wave_results,
 				paused = true,
+				plan = plan,
 			})
 			return
 		end
@@ -533,6 +552,10 @@ function M.run(waves, start_from, request, master_started, status, prev_wave_res
 			prev_wave_results,
 			sopts,
 			function(success, wave_result)
+				-- Include plan in wave_result for downstream use
+				if plan then
+					wave_result.plan = plan
+				end
 				prev_wave_results[#prev_wave_results + 1] = wave_result
 
 				if success then
@@ -558,6 +581,7 @@ function M.run(waves, start_from, request, master_started, status, prev_wave_res
 						wave_results = prev_wave_results,
 						failed = true,
 						error = wave_result.error,
+						plan = plan,
 					})
 
 					state_mod.write_log({
@@ -582,7 +606,8 @@ function M.run(waves, start_from, request, master_started, status, prev_wave_res
 						vim.log.levels.ERROR
 					)
 				end
-			end
+			end,
+			plan
 		)
 	end
 

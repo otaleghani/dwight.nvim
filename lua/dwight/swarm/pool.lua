@@ -52,6 +52,7 @@ function M.run_batch(tasks, context, on_task_status, on_task_tool, on_all_done)
 					success = success,
 					data = data,
 					title = t.title,
+					node_id = t.node_id,
 				}
 
 				if completed >= total then

@@ -54,15 +54,15 @@ function M.swarm(request)
 	status.start_session("Swarm: " .. request:sub(1, 50))
 	status.spin("Decomposing request into parallel waves...")
 
-	vim.notify("[dwight] DwightSwarm: decomposing into parallel waves...", vim.log.levels.INFO)
+	vim.notify("[dwight] DwightSwarm: planning DAG decomposition...", vim.log.levels.INFO)
 
-	local decompose = require("dwight.swarm.decompose")
-	decompose._decompose(request, function(waves, err)
+	local planner = require("dwight.swarm.planner")
+	planner._plan(request, function(waves, err, plan)
 		status.stop_spin()
 		if err then
-			status.append_hl("Decomposition failed: " .. err:sub(1, 200), "DwightFail")
+			status.append_hl("Planning failed: " .. err:sub(1, 200), "DwightFail")
 			status.end_session(false, 0)
-			vim.notify("[dwight] Swarm decomposition failed: " .. err, vim.log.levels.ERROR)
+			vim.notify("[dwight] Swarm planning failed: " .. err, vim.log.levels.ERROR)
 			return
 		end
 
@@ -72,7 +72,7 @@ function M.swarm(request)
 			total_tasks = total_tasks + #w.tasks
 		end
 
-		status.append_hl(string.format("Decomposed into %d waves, %d tasks total", #waves, total_tasks), "DwightOK")
+		status.append_hl(string.format("Planned %d waves, %d tasks total (DAG)", #waves, total_tasks), "DwightOK")
 		for i, w in ipairs(waves) do
 			status.append_hl(string.format("  Wave %d: %d parallel tasks", i, #w.tasks), "DwightDim")
 			for _, t in ipairs(w.tasks) do
@@ -80,20 +80,25 @@ function M.swarm(request)
 				if t.files and #t.files > 0 then
 					files_str = " [" .. table.concat(t.files, ", ") .. "]"
 				end
-				status.append_hl(string.format("    %d. %s%s", t.order, t.title, files_str), "DwightDim")
+				local deps_str = ""
+				if t.deps and #t.deps > 0 then
+					deps_str = " -> " .. table.concat(t.deps, ", ")
+				end
+				local id_str = t.node_id or tostring(t.order)
+				status.append_hl(string.format("    %s. %s%s%s", id_str, t.title, files_str, deps_str), "DwightDim")
 			end
 		end
 
 		vim.notify(
-			string.format("[dwight] Decomposed into %d waves, %d tasks. Review and <CR> to start.", #waves, total_tasks),
+			string.format("[dwight] Planned %d waves, %d tasks. Review and <CR> to start.", #waves, total_tasks),
 			vim.log.levels.INFO
 		)
 
 		-- Show preview, let user review/edit, then start
 		local preview = require("dwight.swarm.preview")
-		preview.show(request, waves, function(final_waves)
-			M._start_execution(request, final_waves, 1)
-		end)
+		preview.show(request, waves, function(final_waves, final_plan)
+			M._start_execution(request, final_waves, 1, nil, final_plan or plan)
+		end, plan)
 	end)
 end
 
@@ -101,7 +106,7 @@ end
 -- Start execution
 --------------------------------------------------------------------
 
-function M._start_execution(request, waves, start_from, prev_wave_results)
+function M._start_execution(request, waves, start_from, prev_wave_results, plan)
 	local status = require("dwight.agent_status")
 	local master_started = os.time()
 
@@ -146,7 +151,7 @@ function M._start_execution(request, waves, start_from, prev_wave_results)
 	end
 
 	local loop = require("dwight.swarm.loop")
-	loop.run(waves, start_from, request, master_started, status, prev_wave_results)
+	loop.run(waves, start_from, request, master_started, status, prev_wave_results, plan)
 end
 
 --------------------------------------------------------------------
@@ -169,7 +174,7 @@ function M.resume()
 	local wave_idx = st.current_wave or 1
 	vim.notify(string.format("[dwight] Resuming DwightSwarm from wave %d/%d", wave_idx, #st.waves), vim.log.levels.INFO)
 
-	M._start_execution(st.request, st.waves, wave_idx, st.wave_results or {})
+	M._start_execution(st.request, st.waves, wave_idx, st.wave_results or {}, st.plan)
 end
 
 --------------------------------------------------------------------
