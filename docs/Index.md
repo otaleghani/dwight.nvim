@@ -109,6 +109,7 @@ Dwight extracts lessons from each session and applies them to future tasks autom
 | **[[Inline Editing]]** | `:DwightInvoke` | Select code, pick a mode, get in-buffer edits |
 | **[[Agent Mode]]** | `:DwightAgent` | Autonomous single-task with full tool use |
 | **[[Auto Mode]]** | `:DwightAuto` | Multi-step planning, execution, and verification |
+| **[[Swarm Mode]]** | `:DwightSwarm` | Parallel multi-agent waves across isolated worktrees |
 | **[[Bootstrap and Coverage]]** | `:DwightBootstrap` | Auto-add feature pragmas to source files |
 | **[[Feature Management]]** | `:DwightFeatures` | Browse, preview, and split features |
 | **[[Refactoring]]** | `:DwightRefactor` | Decompose large refactoring with importer analysis |

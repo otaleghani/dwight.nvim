@@ -50,6 +50,18 @@ All commands are prefixed with `:Dwight`. Most accept optional arguments and pro
 
 ---
 
+## Swarm Mode → [[Swarm Mode]]
+
+| Command | Args | Description |
+|---------|------|-------------|
+| `:DwightSwarm` | `[task]` | Decompose and execute in parallel waves. Accepts visual range |
+| `:DwightSwarmResume` | | Resume from a failed or paused wave |
+| `:DwightSwarmCancel` | | Cancel active session and cleanup worktrees |
+| `:DwightSwarmStatus` | | Show wave progress and task status |
+| `:DwightSwarmPause` | | Pause after current wave completes |
+
+---
+
 ## Bootstrap and Coverage → [[Bootstrap and Coverage]]
 
 | Command | Args | Description |
