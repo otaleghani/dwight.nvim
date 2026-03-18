@@ -688,14 +688,20 @@ end
 --- For "api": only providers with a valid API key.
 --- For "claude_code": Anthropic models (no API key needed, claude CLI handles auth).
 --- For "opencode": all configured models (opencode manages its own keys).
-function M.available_models_for_backend()
+function M.available_models_for_backend(arglead)
 	local cfg = require("dwight").config
 	local backend = cfg.backend or "api"
 
 	if backend == "claude_code" then
 		-- Claude Code supports these models via --model flag.
 		-- No API key or provider lookup needed — claude CLI handles auth.
-		return { "haiku", "opus", "sonnet" }
+		local models = { "haiku", "opus", "sonnet" }
+		if arglead and arglead ~= "" then
+			return vim.tbl_filter(function(n)
+				return vim.startswith(n, arglead)
+			end, models)
+		end
+		return models
 	end
 
 	-- For api/opencode, we need providers loaded
@@ -746,6 +752,11 @@ function M.available_models_for_backend()
 	end
 
 	table.sort(names)
+	if arglead and arglead ~= "" then
+		return vim.tbl_filter(function(n)
+			return vim.startswith(n, arglead)
+		end, names)
+	end
 	return names
 end
 
