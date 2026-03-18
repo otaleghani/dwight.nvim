@@ -513,8 +513,8 @@ function M.register()
 		require_mod("providers").switch(o.args)
 	end, {
 		nargs = 1,
-		complete = function()
-			return require_mod("providers").available_models_for_backend()
+		complete = function(arglead)
+			return require_mod("providers").available_models_for_backend(arglead)
 		end,
 		desc = "Switch model (filtered by current backend)",
 	})
