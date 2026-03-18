@@ -993,6 +993,21 @@ function M.run(opts)
 		end
 	end
 
+	-- Wrap on_complete with reflection when enabled
+	local final_on_complete = on_complete
+	local ac = cfg.agentic_opts or {}
+	if ac.reflection then
+		local reflection = require("dwight.reflection")
+		final_on_complete = reflection.wrap(
+			opts,
+			backend_name,
+			function(enhanced_opts)
+				spawn_backend(backend_name, enhanced_opts)
+			end,
+			on_complete
+		)
+	end
+
 	spawn_backend(backend_name, {
 		task = opts.task,
 		context = opts.context,
@@ -1000,7 +1015,7 @@ function M.run(opts)
 		cwd = opts.cwd or vim.fn.getcwd(),
 		on_status = on_status,
 		on_tool = on_tool,
-		on_complete = on_complete,
+		on_complete = final_on_complete,
 		task_id = opts.task_id,
 	})
 end
