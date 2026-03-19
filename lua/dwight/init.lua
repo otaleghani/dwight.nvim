@@ -117,6 +117,9 @@ M._last_inline = nil
 function M.setup(opts)
 	M.config = vim.tbl_deep_extend("force", {}, M.defaults, opts or {})
 
+	-- Validate config early (migrates deprecated keys, flags typos/invalid values)
+	require_mod("config").check_all(M.config, opts)
+
 	local hl = vim.api.nvim_set_hl
 	hl(0, "DwightProcessing", { fg = "#e0af68", bold = true, italic = true, default = true })
 	hl(0, "DwightSkill", { fg = "#7dcfff", bold = true, underline = true, default = true })
@@ -147,7 +150,8 @@ function M.setup(opts)
 	require_mod("providers").load()
 
 	-- Reset language registry so user config merges take effect
-	pcall(function()
+	local errors = require_mod("errors")
+	errors.try("languages.reset", function()
 		require_mod("languages").reset()
 	end)
 
@@ -160,7 +164,7 @@ function M.setup(opts)
 	end
 
 	-- Sync tracker model with backend config
-	pcall(function()
+	errors.try("tracker.set_model", function()
 		local model_map = {
 			claude_code = M.config.claude_code_model or M.config.model or "sonnet",
 			codex = M.config.codex_model or "codex",
@@ -175,7 +179,7 @@ function M.setup(opts)
 	M._register_commands()
 
 	-- Initialize persistent session log (.dwight/session.log)
-	pcall(function()
+	errors.try("session_log.init", function()
 		require_mod("session_log").init()
 	end)
 
@@ -185,7 +189,7 @@ function M.setup(opts)
 	end
 
 	-- Start kit MCP servers
-	pcall(function()
+	errors.try("kit_mcp_servers", function()
 		if require_mod("project").is_initialized() then
 			local kit_servers = require("dwight.marketplace.kits").active_mcp_servers()
 			if #kit_servers > 0 then
@@ -201,7 +205,7 @@ function M.setup(opts)
 	if #M.config.mcp_servers > 0 then
 		vim.api.nvim_create_autocmd("VimLeavePre", {
 			callback = function()
-				pcall(function()
+				errors.try("mcp.stop_all", function()
 					require_mod("mcp").stop_all()
 				end)
 			end,
@@ -211,7 +215,7 @@ function M.setup(opts)
 	-- Cleanup progress watcher on exit
 	vim.api.nvim_create_autocmd("VimLeavePre", {
 		callback = function()
-			pcall(function()
+			errors.try("progress.stop", function()
 				require_mod("progress").stop()
 			end)
 		end,

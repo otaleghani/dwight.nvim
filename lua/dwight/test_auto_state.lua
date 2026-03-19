@@ -9,10 +9,15 @@ local T = _T
 local test_dir = vim.fn.tempname()
 vim.fn.mkdir(test_dir, "p")
 
--- Clear cached modules so the preload hook takes effect even when
--- test_auto_state runs after other test files that already required these.
-package.loaded["dwight.project"] = nil
-package.loaded["dwight.auto"] = nil
+-- Nuclear module cache clearing: ensures clean state regardless of which
+-- tests ran previously (e.g. test_agentic.lua or test_gates.lua may have
+-- cached dwight.project with a different mock). Safe because each test
+-- file runs in its own nvim --headless process.
+for key in pairs(package.loaded) do
+	if key:match("^dwight%.") then
+		package.loaded[key] = nil
+	end
+end
 
 -- Monkey-patch the auto_dir function to use our temp dir
 -- (auto_dir is local, but _save_state/_load_state/_clear_state are public)

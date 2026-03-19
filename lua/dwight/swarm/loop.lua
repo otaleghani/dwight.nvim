@@ -8,18 +8,26 @@ local M = {}
 -- Shared helpers
 --------------------------------------------------------------------
 
-local function fmt_dur(secs)
+function M._fmt_dur(secs)
 	if secs >= 60 then
 		return string.format("%dm%ds", math.floor(secs / 60), secs % 60)
 	end
 	return string.format("%ds", secs)
 end
 
-local function fmt_cost(c)
+function M._fmt_cost(c)
 	if not c or c <= 0 then
 		return ""
 	end
 	return string.format("~$%.2f", c)
+end
+
+-- Local aliases for internal use
+local function fmt_dur(secs)
+	return M._fmt_dur(secs)
+end
+local function fmt_cost(c)
+	return M._fmt_cost(c)
 end
 
 --------------------------------------------------------------------
@@ -28,8 +36,9 @@ end
 
 local function build_context(prev_wave_results)
 	local parts = {}
+	local errors = require("dwight.errors")
 
-	pcall(function()
+	errors.try("swarm.context.manifest", function()
 		local ctx = require("dwight.context")
 		local manifest = ctx.build_xml()
 		if manifest then
@@ -37,7 +46,7 @@ local function build_context(prev_wave_results)
 		end
 	end)
 
-	pcall(function()
+	errors.try("swarm.context.features", function()
 		local features = require("dwight.features")
 		local xml = features.build_project_context()
 		if xml and xml ~= "" then
@@ -45,7 +54,7 @@ local function build_context(prev_wave_results)
 		end
 	end)
 
-	pcall(function()
+	errors.try("swarm.context.tree", function()
 		local bootstrap = require("dwight.bootstrap")
 		local scan = bootstrap.scan()
 		if scan.tree and #scan.tree > 0 then

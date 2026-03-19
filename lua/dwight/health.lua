@@ -336,6 +336,21 @@ function M._run_checks()
 		}
 	end)
 
+	-- Config validation
+	pcall(function()
+		local config = require("dwight.config")
+		local cfg = require("dwight").config
+		local msgs = config.validate(cfg)
+		for _, m in ipairs(msgs) do
+			checks[#checks + 1] = {
+				ok = m.level ~= "ERROR",
+				name = "Config",
+				detail = m.msg,
+				warn = m.level == "WARN",
+			}
+		end
+	end)
+
 	-- Filter out nil checks (skipped)
 	local results = {}
 	for _, c in ipairs(checks) do

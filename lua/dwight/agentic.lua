@@ -749,7 +749,7 @@ local function spawn_backend(backend_name, opts)
 	-- Timeout (declared before spawn so exit callback can cancel it)
 	local timeout_timer = nil
 	local ac = cfg.agentic_opts or {}
-	local timeout_secs = ac.cli_timeout or ac.claude_code_timeout or 600
+	local timeout_secs = ac.cli_timeout or 600
 
 	-- Create stdout parser from backend (before spawn, referenced in exit callback)
 	local parser = backend.new_parser(on_status, on_tool, log_event)
