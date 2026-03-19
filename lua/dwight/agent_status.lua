@@ -432,6 +432,13 @@ function M._cost_label()
 	local parts = {}
 	if cost > 0 then
 		parts[#parts + 1] = "~" .. fmt_cost(cost)
+		-- Show remaining budget if session limit is set
+		pcall(function()
+			local remaining = require("dwight.tracker").session_budget_remaining()
+			if remaining then
+				parts[#parts + 1] = string.format("(%s left)", fmt_cost(remaining))
+			end
+		end)
 	end
 	if tokens.total > 0 then
 		parts[#parts + 1] = fmt_tokens(tokens.total) .. " tok"

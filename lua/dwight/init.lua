@@ -85,6 +85,14 @@ M.defaults = {
 		cleanup_worktrees = true, -- remove worktrees after each wave merge
 	},
 
+	-- Cost limits: budget caps to prevent runaway spending.
+	-- Costs are estimates (~20% variance). Set to nil to disable.
+	cost_limits = {
+		per_session = nil, -- max dollars per DwightAuto/DwightSwarm session. e.g., 5.00
+		per_day = nil, -- max dollars per calendar day (spans Neovim restarts). e.g., 20.00
+		warn_threshold = 0.8, -- warn at this fraction of limit (0.0-1.0)
+	},
+
 	-- MCP servers (list of { name, command, args, env, cwd })
 	mcp_servers = {},
 

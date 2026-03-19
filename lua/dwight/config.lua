@@ -99,6 +99,37 @@ function M.validate(cfg)
 		end
 	end
 
+	-- Cost limits
+	local cl = cfg.cost_limits
+	if cl then
+		if cl.per_session ~= nil and (type(cl.per_session) ~= "number" or cl.per_session <= 0) then
+			msgs[#msgs + 1] = {
+				level = "WARN",
+				msg = string.format(
+					"cost_limits.per_session should be a positive number, got: %s",
+					tostring(cl.per_session)
+				),
+			}
+		end
+		if cl.per_day ~= nil and (type(cl.per_day) ~= "number" or cl.per_day <= 0) then
+			msgs[#msgs + 1] = {
+				level = "WARN",
+				msg = string.format("cost_limits.per_day should be a positive number, got: %s", tostring(cl.per_day)),
+			}
+		end
+		if cl.warn_threshold ~= nil then
+			if type(cl.warn_threshold) ~= "number" or cl.warn_threshold < 0 or cl.warn_threshold > 1 then
+				msgs[#msgs + 1] = {
+					level = "WARN",
+					msg = string.format(
+						"cost_limits.warn_threshold should be a number between 0.0 and 1.0, got: %s",
+						tostring(cl.warn_threshold)
+					),
+				}
+			end
+		end
+	end
+
 	return msgs
 end
 
@@ -174,6 +205,7 @@ local KNOWN_TOP = {
 	"parallel_steps",
 	"agentic_opts",
 	"swarm_opts",
+	"cost_limits",
 	"mcp_servers",
 	"languages",
 	"modes",
@@ -191,6 +223,12 @@ local KNOWN_SWARM = {
 	"on_partial_failure",
 	"cleanup_worktrees",
 	"auto_resolve",
+}
+
+local KNOWN_COST_LIMITS = {
+	"per_session",
+	"per_day",
+	"warn_threshold",
 }
 
 --- Build a lookup set from a list.
@@ -244,6 +282,19 @@ function M.find_unknown_keys(opts)
 				msgs[#msgs + 1] = {
 					level = "WARN",
 					msg = string.format("Unknown swarm_opts key '%s' — possible typo?", key),
+				}
+			end
+		end
+	end
+
+	-- Check nested cost_limits
+	if opts.cost_limits and type(opts.cost_limits) == "table" then
+		local cl_set = to_set(KNOWN_COST_LIMITS)
+		for key, _ in pairs(opts.cost_limits) do
+			if not cl_set[key] then
+				msgs[#msgs + 1] = {
+					level = "WARN",
+					msg = string.format("Unknown cost_limits key '%s' — possible typo?", key),
 				}
 			end
 		end

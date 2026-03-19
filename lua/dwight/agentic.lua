@@ -1057,6 +1057,18 @@ function M.run(opts)
 		M.reset()
 	end
 
+	-- Daily budget pre-flight: block if daily limit already blown
+	do
+		local tracker_ok, daily = pcall(function()
+			return require("dwight.tracker").check_daily_budget()
+		end)
+		if tracker_ok and daily.exceeded then
+			on_status("Budget: " .. daily.message)
+			on_complete(false, { error = daily.message, journal = {} })
+			return
+		end
+	end
+
 	-- Resolve backend
 	local cfg = require("dwight").config
 	local backend_name = cfg.backend or "claude_code"

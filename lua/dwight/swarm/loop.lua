@@ -534,6 +534,54 @@ function M.run(waves, start_from, request, master_started, status, prev_wave_res
 
 		local wave = waves[idx]
 
+		-- Budget check before starting next wave
+		local budget_ok, budget = pcall(function()
+			return require("dwight.tracker").check_all_budgets()
+		end)
+		if budget_ok and budget.exceeded then
+			local total_duration = os.time() - master_started
+			local total_cost = status.session_cost and status.session_cost() or 0
+
+			status.append("")
+			for _, msg in ipairs(budget.messages) do
+				status.append_hl("  " .. msg, "DwightFail")
+			end
+			status.end_session(false, total_duration)
+
+			state_mod.save({
+				request = request,
+				waves = waves,
+				current_wave = idx,
+				started = master_started,
+				wave_results = prev_wave_results,
+				failed = true,
+				error = "Budget exceeded",
+				plan = plan,
+			})
+
+			state_mod.write_log({
+				success = false,
+				request = request,
+				duration = total_duration,
+				total_waves = total_waves,
+				cost = total_cost,
+				wave_results = prev_wave_results,
+				failed_wave = idx,
+				failed_error = "Budget exceeded",
+			})
+
+			notify._notify_failure(idx, total_waves, "wave " .. idx, "Budget exceeded")
+			vim.notify(
+				string.format("[dwight] DwightSwarm: budget exceeded, stopping before wave %d", idx),
+				vim.log.levels.ERROR
+			)
+			return
+		elseif budget_ok and budget.warning then
+			for _, msg in ipairs(budget.messages) do
+				status.append_hl("  " .. msg, "DwightWarn")
+			end
+		end
+
 		-- Save state for resume
 		state_mod.save({
 			request = request,

@@ -292,6 +292,89 @@ function M.get_model()
 end
 
 --------------------------------------------------------------------
+-- Budget Checks
+--------------------------------------------------------------------
+
+--- Check a single budget (local helper).
+--- @param current number  Current spend
+--- @param limit number|nil  Budget limit (nil = no limit)
+--- @param threshold number  Warning threshold fraction (0.0-1.0)
+--- @param label string  Label for messages (e.g., "Session", "Daily")
+--- @return table { exceeded: bool, warning: bool, message: string|nil }
+local function check_budget(current, limit, threshold, label)
+	if not limit then
+		return { exceeded = false, warning = false }
+	end
+	if current >= limit then
+		return {
+			exceeded = true,
+			warning = false,
+			message = string.format("%s budget exceeded: $%.2f / $%.2f", label, current, limit),
+		}
+	end
+	if current >= limit * threshold then
+		local pct = math.floor((current / limit) * 100)
+		return {
+			exceeded = false,
+			warning = true,
+			message = string.format("%s budget at %d%%: $%.2f / $%.2f", label, pct, current, limit),
+		}
+	end
+	return { exceeded = false, warning = false }
+end
+
+--- Check session budget against config limit.
+function M.check_session_budget()
+	local cfg = require("dwight").config
+	local cl = cfg.cost_limits or {}
+	local threshold = cl.warn_threshold or 0.8
+	return check_budget(M._session.cost or 0, cl.per_session, threshold, "Session")
+end
+
+--- Check daily budget against config limit.
+function M.check_daily_budget()
+	local cfg = require("dwight").config
+	local cl = cfg.cost_limits or {}
+	local threshold = cl.warn_threshold or 0.8
+	local today = os.date("%Y-%m-%d")
+	local data = read_data()
+	local daily_cost = (data.daily_cost and data.daily_cost[today]) or 0
+	return check_budget(daily_cost, cl.per_day, threshold, "Daily")
+end
+
+--- Check all budgets. Returns combined result.
+--- @return table { exceeded: bool, warning: bool, messages: string[] }
+function M.check_all_budgets()
+	local session = M.check_session_budget()
+	local daily = M.check_daily_budget()
+	local messages = {}
+	if session.message then
+		messages[#messages + 1] = session.message
+	end
+	if daily.message then
+		messages[#messages + 1] = daily.message
+	end
+	return {
+		exceeded = session.exceeded or daily.exceeded,
+		warning = session.warning or daily.warning,
+		messages = messages,
+	}
+end
+
+--- Get remaining session budget in dollars, or nil if no limit is set.
+function M.session_budget_remaining()
+	local cfg = require("dwight").config
+	local cl = cfg.cost_limits or {}
+	if not cl.per_session then
+		return nil
+	end
+	return math.max(0, cl.per_session - (M._session.cost or 0))
+end
+
+-- Expose check_budget for testing
+M._check_budget = check_budget
+
+--------------------------------------------------------------------
 -- Display Helpers
 --------------------------------------------------------------------
 

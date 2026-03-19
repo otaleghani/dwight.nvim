@@ -693,6 +693,54 @@ function M._run_loop(tasks, start_from, master_request, master_started, status, 
 
 		local task = tasks[idx]
 
+		-- Budget check before starting next task
+		local budget_ok, budget = pcall(function()
+			return require("dwight.tracker").check_all_budgets()
+		end)
+		if budget_ok and budget.exceeded then
+			status.stop_spin()
+			for _, msg in ipairs(budget.messages) do
+				status.append_hl("  " .. msg, "DwightFail")
+			end
+
+			local total_duration = os.time() - master_started
+			total_cost = status.session_cost and status.session_cost() or 0
+			local tokens = status.session_tokens and status.session_tokens() or { input = 0, output = 0, total = 0 }
+
+			render_recap(status, {
+				completed_sessions = completed_sessions,
+				tasks = tasks,
+				total_duration = total_duration,
+				total_cost = total_cost,
+				tokens = tokens,
+				failed_idx = idx,
+				failed_error = "Budget exceeded",
+				completed_count = idx - 1,
+			})
+
+			status.end_session(false, total_duration)
+
+			state._save_state({
+				request = master_request,
+				tasks = tasks,
+				current_task = idx,
+				started = master_started,
+				completed = completed_sessions,
+				failed = true,
+				error = "Budget exceeded",
+			})
+
+			vim.notify(
+				string.format("[dwight] DwightAuto: budget exceeded, stopping before task %d", idx),
+				vim.log.levels.ERROR
+			)
+			return
+		elseif budget_ok and budget.warning then
+			for _, msg in ipairs(budget.messages) do
+				status.append_hl("  " .. msg, "DwightWarn")
+			end
+		end
+
 		-- Save state for resume
 		state._save_state({
 			request = master_request,
