@@ -108,6 +108,14 @@ function M._execute_wave(wave, wave_idx, total_waves, request, status, prev_wave
 	local gates = require("dwight.gates")
 	local wave_started = os.time()
 
+	-- Abort any stale merge state left by a prior crash
+	if worktree.check_merge_state() then
+		status.append_hl("  Aborted stale merge state from prior session", "DwightWarn")
+	end
+
+	-- Clean up any stale worktrees from prior sessions
+	worktree.cleanup_stale()
+
 	status.append("")
 	status.header(string.format("Wave %d/%d (%d parallel tasks)", wave_idx, total_waves, #wave.tasks))
 

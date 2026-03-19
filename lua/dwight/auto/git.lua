@@ -42,6 +42,12 @@ function M.git_sync(args, timeout_ms, cwd)
 	vim.wait(timeout_ms or 5000, function()
 		return done
 	end, 50)
+	-- Kill the process if it's still running after timeout
+	if not done and handle and not handle:is_closing() then
+		pcall(function()
+			handle:kill("sigkill")
+		end)
+	end
 	return result, code_out or -1
 end
 

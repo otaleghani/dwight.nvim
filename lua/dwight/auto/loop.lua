@@ -541,7 +541,12 @@ function M._run_loop(tasks, start_from, master_request, master_started, status, 
 		local code = vim.v.shell_error
 
 		if code ~= 0 then
-			for test_name in output:gmatch("%-%-%-% FAIL:%s+(%S+)") do
+			local gates = require("dwight.gates")
+			local detected_lang = nil
+			pcall(function()
+				detected_lang = agentic.detect_language()
+			end)
+			for _, test_name in ipairs(gates.parse_test_failures(output, detected_lang)) do
 				baseline_failures[test_name] = true
 			end
 			local count = 0
@@ -708,11 +713,11 @@ function M._run_loop(tasks, start_from, master_request, master_started, status, 
 
 			-- Helper: handle failure (used by both direct failure and gate failure)
 			local function handle_failure(err_msg)
-				-- Kill any running agentic process (prevents zombie Claude Code sessions)
-				pcall(function()
-					local agentic = require("dwight.agentic")
-					agentic.abort()
-				end)
+				-- Kill any running agentic process and wait for it to actually die
+				-- before git rollback. Polling _active_handle avoids the race
+				-- condition of a fixed delay.
+				local agentic = require("dwight.agentic")
+				agentic.abort()
 
 				-- Capture the diff BEFORE rolling back (for retry-in-place)
 				local failure_diff = ""
@@ -727,88 +732,83 @@ function M._run_loop(tasks, start_from, master_request, master_started, status, 
 						end
 					end
 				end)
+				vim.wait(5000, function()
+					return agentic._active_handle == nil
+				end, 100)
+				vim.schedule(function()
+					-- Rollback to last checkpoint
+					git._git_rollback(status)
 
-				-- Wait 3s for Claude Code to fully die before git rollback.
-				-- Without this delay, Claude Code child processes may recreate files
-				-- that git clean just removed.
-				local rollback_timer = uv.new_timer()
-				rollback_timer:start(3000, 0, function()
-					rollback_timer:close()
-					vim.schedule(function()
-						-- Rollback to last checkpoint
-						git._git_rollback(status)
+					state._save_state({
+						request = master_request,
+						tasks = tasks,
+						current_task = idx,
+						started = master_started,
+						completed = completed_sessions,
+						failed = true,
+						error = err_msg or "execution failed",
+						-- Retry context: what the failed attempt produced before rollback
+						retry_context = {
+							diff_stat = failure_diff_stat,
+							diff = failure_diff,
+							error = err_msg,
+							summary = session_data.summary or "",
+							task_title = task.title,
+						},
+					})
 
-						state._save_state({
-							request = master_request,
-							tasks = tasks,
-							current_task = idx,
-							started = master_started,
-							completed = completed_sessions,
-							failed = true,
-							error = err_msg or "execution failed",
-							-- Retry context: what the failed attempt produced before rollback
-							retry_context = {
-								diff_stat = failure_diff_stat,
-								diff = failure_diff,
-								error = err_msg,
-								summary = session_data.summary or "",
-								task_title = task.title,
-							},
-						})
+					notify._notify_failure(idx, total, task.title, err_msg)
 
-						notify._notify_failure(idx, total, task.title, err_msg)
+					local total_duration = os.time() - master_started
+					total_cost = status.session_cost and status.session_cost() or 0
 
-						local total_duration = os.time() - master_started
-						total_cost = status.session_cost and status.session_cost() or 0
+					local tokens = status.session_tokens and status.session_tokens()
+						or { input = 0, output = 0, total = 0 }
 
-						local tokens = status.session_tokens and status.session_tokens()
-							or { input = 0, output = 0, total = 0 }
+					render_recap(status, {
+						completed_sessions = completed_sessions,
+						tasks = tasks,
+						total_duration = total_duration,
+						total_cost = total_cost,
+						tokens = tokens,
+						failed_idx = idx,
+						failed_error = err_msg,
+						completed_count = idx - 1,
+					})
 
-						render_recap(status, {
-							completed_sessions = completed_sessions,
-							tasks = tasks,
-							total_duration = total_duration,
-							total_cost = total_cost,
-							tokens = tokens,
-							failed_idx = idx,
-							failed_error = err_msg,
-							completed_count = idx - 1,
-						})
+					status.stop_spin()
+					status.end_session(false, total_duration)
 
-						status.stop_spin()
-						status.end_session(false, total_duration)
+					-- Write session summary log
+					local cfg_ok2, cfg2 = pcall(function()
+						return require("dwight").config
+					end)
+					state._write_session_log({
+						success = false,
+						request = master_request,
+						duration = total_duration,
+						backend = cfg_ok2 and cfg2.backend or "?",
+						cost = total_cost,
+						total_tasks = total,
+						completed_count = idx - 1,
+						sessions = completed_sessions,
+						failed_task = {
+							num = idx,
+							title = task.title,
+							error = err_msg,
+						},
+					})
 
-						-- Write session summary log
-						local cfg_ok2, cfg2 = pcall(function()
-							return require("dwight").config
-						end)
-						state._write_session_log({
-							success = false,
-							request = master_request,
-							duration = total_duration,
-							backend = cfg_ok2 and cfg2.backend or "?",
-							cost = total_cost,
-							total_tasks = total,
-							completed_count = idx - 1,
-							sessions = completed_sessions,
-							failed_task = {
-								num = idx,
-								title = task.title,
-								error = err_msg,
-							},
-						})
-
-						vim.notify(
-							string.format(
-								"[dwight] DwightAuto: task %d/%d failed (%s). Use :DwightAutoRetry to retry in place, :DwightAutoResume to restart, :DwightAutoSkip to skip.",
-								idx,
-								total,
-								task.title
-							),
-							vim.log.levels.ERROR
-						)
-					end) -- vim.schedule
-				end) -- rollback_timer
+					vim.notify(
+						string.format(
+							"[dwight] DwightAuto: task %d/%d failed (%s). Use :DwightAutoRetry to retry in place, :DwightAutoResume to restart, :DwightAutoSkip to skip.",
+							idx,
+							total,
+							task.title
+						),
+						vim.log.levels.ERROR
+					)
+				end) -- vim.schedule
 			end -- handle_failure
 
 			if success then

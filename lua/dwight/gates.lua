@@ -82,6 +82,55 @@ local function run_gate_cmd(cmd, timeout_ms, callback)
 end
 
 --------------------------------------------------------------------
+-- Language-aware test failure parsing
+--------------------------------------------------------------------
+
+--- Extract failed test names from test output using language-aware patterns.
+--- @param output string Raw test output
+--- @param lang string|nil Detected language (nil = try all patterns)
+--- @return table List of failed test names
+function M.parse_test_failures(output, lang)
+	local failures = {}
+	local seen = {}
+
+	-- Pattern sets per language
+	local patterns = {
+		go = { "%-%-%-% FAIL:%s+(%S+)" },
+		python = { "FAILED%s+(%S+)", "FAIL:%s+(%S+)", "ERROR%s+(%S+)" },
+		javascript = {
+			"[✕×]%s+(.+)$", -- Jest/Vitest failure markers
+			"FAIL%s+(%S+)", -- Jest FAIL prefix
+		},
+		rust = { "test%s+(%S+)%s+%.%.%.%s+FAILED" },
+	}
+
+	-- Determine which pattern sets to use
+	local sets_to_try = {}
+	if lang and patterns[lang] then
+		sets_to_try[#sets_to_try + 1] = patterns[lang]
+	else
+		-- Try all patterns
+		for _, pats in pairs(patterns) do
+			sets_to_try[#sets_to_try + 1] = pats
+		end
+	end
+
+	for _, pats in ipairs(sets_to_try) do
+		for _, pat in ipairs(pats) do
+			for test_name in output:gmatch(pat) do
+				local trimmed = vim.trim(test_name)
+				if trimmed ~= "" and not seen[trimmed] then
+					seen[trimmed] = true
+					failures[#failures + 1] = trimmed
+				end
+			end
+		end
+	end
+
+	return failures
+end
+
+--------------------------------------------------------------------
 -- Individual gates
 --------------------------------------------------------------------
 
@@ -142,10 +191,15 @@ function M.tests(status, callback, baseline_failures)
 			status.append_hl("  ● Tests passed", "DwightOK")
 			callback(true, output)
 		else
+			-- Detect language for appropriate failure pattern matching
+			local lang = nil
+			pcall(function()
+				lang = agentic.detect_language()
+			end)
+
+			local all_failures = M.parse_test_failures(output, lang)
 			local new_failures = {}
-			local all_failures = {}
-			for test_name in output:gmatch("%-%-%-% FAIL:%s+(%S+)") do
-				all_failures[#all_failures + 1] = test_name
+			for _, test_name in ipairs(all_failures) do
 				if not (baseline_failures and baseline_failures[test_name]) then
 					new_failures[#new_failures + 1] = test_name
 				end
@@ -316,46 +370,37 @@ function M.run_all(status, callback, baseline_failures, baseline_coverage)
 	-- Open a fold for gate details
 	status.append("  ▸ Verification ▸{{{")
 
-	-- Gate 1: Lint
-	M.lint(status, function(lint_ok, lint_out)
-		if not lint_ok then
+	-- Define the pipeline as a list of gates.
+	-- Each entry: { name, fn, args_after_status_and_callback }
+	local pipeline = {
+		{ name = "lint", fn = M.lint, args = {} },
+		{ name = "tests", fn = M.tests, args = { baseline_failures } },
+		{ name = "coverage", fn = M.coverage, args = { baseline_coverage } },
+		{ name = "smoke", fn = M.smoke, args = {} },
+	}
+
+	local function run_next(idx)
+		if idx > #pipeline then
+			-- All gates passed
 			status.append("  ▸}}}")
-			status.append_hl("  ✗ Verification failed", "DwightFail")
-			callback(false, lint_out)
+			status.append_hl("  ● Verification passed", "DwightOK")
+			callback(true, "")
 			return
 		end
 
-		-- Gate 2: Unit tests
-		M.tests(status, function(test_ok, test_out)
-			if not test_ok then
+		local gate = pipeline[idx]
+		gate.fn(status, function(ok, output)
+			if not ok then
 				status.append("  ▸}}}")
 				status.append_hl("  ✗ Verification failed", "DwightFail")
-				callback(false, test_out)
+				callback(false, output)
 				return
 			end
+			run_next(idx + 1)
+		end, unpack(gate.args))
+	end
 
-			-- Gate 3: Coverage delta
-			M.coverage(status, function(cov_ok, cov_out)
-				if not cov_ok then
-					status.append("  ▸}}}")
-					status.append_hl("  ✗ Verification failed", "DwightFail")
-					callback(false, cov_out)
-					return
-				end
-
-				-- Gate 4: Smoke test
-				M.smoke(status, function(smoke_ok, smoke_out)
-					status.append("  ▸}}}")
-					if smoke_ok then
-						status.append_hl("  ● Verification passed", "DwightOK")
-					else
-						status.append_hl("  ✗ Verification failed", "DwightFail")
-					end
-					callback(smoke_ok, smoke_out)
-				end)
-			end, baseline_coverage)
-		end, baseline_failures)
-	end)
+	run_next(1)
 end
 
 return M

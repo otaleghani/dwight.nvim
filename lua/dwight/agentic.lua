@@ -154,6 +154,16 @@ local function close_session_log()
 	end
 end
 
+--- Reset all module-level state.
+--- Call at session start to clear any stale state from abnormal exits.
+function M.reset()
+	M._active_handle = nil
+	M._active_pid = nil
+	M._active_backend = nil
+	M._registry = {}
+	close_session_log()
+end
+
 local function log_turn(iteration, role, content_summary)
 	pcall(function()
 		local log = require("dwight.log")
@@ -672,12 +682,48 @@ BACKENDS.gemini = {
 }
 
 --------------------------------------------------------------------
+-- Transient Error Classification
+--------------------------------------------------------------------
+
+--- Classify whether an error is transient (retryable).
+--- @param err_output string stderr/error text from the agent
+--- @param code number exit code
+--- @return boolean true if the error is transient and worth retrying
+function M.classify_transient(err_output, code)
+	if not err_output then
+		return false
+	end
+	local patterns = {
+		"429",
+		"rate limit",
+		"rate_limit",
+		"overloaded",
+		"ECONNRESET",
+		"ETIMEDOUT",
+		"ECONNREFUSED",
+		"timeout",
+		"Too Many Requests",
+		"Service Unavailable",
+		"503",
+		"502",
+		"socket hang up",
+	}
+	local lower = err_output:lower()
+	for _, pat in ipairs(patterns) do
+		if lower:find(pat:lower(), 1, true) then
+			return true
+		end
+	end
+	return false
+end
+
+--------------------------------------------------------------------
 -- Shared CLI Spawn Engine
 --------------------------------------------------------------------
 
 --- Spawn a CLI agent backend and manage its lifecycle.
 --- @param backend_name string  Key into BACKENDS table
---- @param opts table           { task, context, prev_tasks, cwd, on_status, on_tool, on_complete, task_id }
+--- @param opts table           { task, context, prev_tasks, cwd, on_status, on_tool, on_complete, task_id, _retry_count }
 local function spawn_backend(backend_name, opts)
 	local backend = BACKENDS[backend_name]
 	local cfg = require("dwight").config
@@ -807,6 +853,37 @@ local function spawn_backend(backend_name, opts)
 			-- Failure
 			if code ~= 0 then
 				local error_msg = backend.classify_error(err_output, code)
+
+				-- Retry transient errors (rate limits, network timeouts)
+				local retry_count = opts._retry_count or 0
+				local max_retries = ac.max_retries or 1
+				if M.classify_transient(err_output, code) and retry_count < max_retries then
+					local backoff_s = retry_count == 0 and 30 or 60
+					on_status(
+						string.format(
+							"⏳ Transient error, retrying in %ds (attempt %d/%d): %s",
+							backoff_s,
+							retry_count + 1,
+							max_retries,
+							error_msg:sub(1, 100)
+						)
+					)
+					log_event({ turn = -1, type = "retry", attempt = retry_count + 1, backoff = backoff_s })
+					local retry_timer = uv.new_timer()
+					retry_timer:start(backoff_s * 1000, 0, function()
+						retry_timer:close()
+						vim.schedule(function()
+							local retry_opts = {}
+							for k, v in pairs(opts) do
+								retry_opts[k] = v
+							end
+							retry_opts._retry_count = retry_count + 1
+							spawn_backend(backend_name, retry_opts)
+						end)
+					end)
+					return
+				end
+
 				on_status("❌ " .. error_msg)
 				pcall(function()
 					if session_job_id then
@@ -973,6 +1050,11 @@ function M.run(opts)
 
 	if not on_complete then
 		error("agentic.run() requires on_complete callback")
+	end
+
+	-- Clear stale module state for single-agent sessions (DwightAgent/DwightAuto)
+	if not opts.task_id then
+		M.reset()
 	end
 
 	-- Resolve backend

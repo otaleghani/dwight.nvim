@@ -47,7 +47,33 @@ function M.git_sync(args, timeout_ms, cwd)
 	vim.wait(timeout_ms or 5000, function()
 		return done
 	end, 50)
+	-- Kill the process if it's still running after timeout
+	if not done and handle and not handle:is_closing() then
+		pcall(function()
+			handle:kill("sigkill")
+		end)
+	end
 	return result, code_out or -1
+end
+
+--------------------------------------------------------------------
+-- Stale merge state detection
+--------------------------------------------------------------------
+
+--- Check for and abort any dangling merge state left by a crash.
+--- Should be called at the start of each wave to ensure clean git state.
+--- @return boolean aborted True if a stale merge was detected and aborted
+function M.check_merge_state()
+	local git_dir = vim.fn.finddir(".git", vim.fn.getcwd())
+	if git_dir == "" then
+		return false
+	end
+	local merge_head = git_dir .. "/MERGE_HEAD"
+	if vim.fn.filereadable(merge_head) == 1 then
+		M.git_sync({ "merge", "--abort" }, 5000)
+		return true
+	end
+	return false
 end
 
 --------------------------------------------------------------------
@@ -103,13 +129,21 @@ end
 --------------------------------------------------------------------
 
 --- Remove a worktree and its branch.
+--- Retries once after 500ms if the first attempt fails (locked files, NFS, etc.).
 --- @param wt_path string Worktree path
 function M.remove(wt_path)
 	-- Prune stale worktree references first
 	M.git_sync({ "worktree", "prune" }, 5000)
 
 	-- Remove worktree (--force to handle uncommitted changes)
-	M.git_sync({ "worktree", "remove", wt_path, "--force" }, 10000)
+	local _, code = M.git_sync({ "worktree", "remove", wt_path, "--force" }, 10000)
+	if code ~= 0 then
+		-- Retry once after a brief pause (handles locked files, NFS delays)
+		vim.wait(500, function()
+			return false
+		end, 500)
+		M.git_sync({ "worktree", "remove", wt_path, "--force" }, 10000)
+	end
 
 	-- Extract branch name from path and delete it
 	local branch = wt_path:match("(dwight%-swarm/.*)$")
@@ -122,6 +156,27 @@ function M.remove(wt_path)
 	end
 	if branch then
 		M.git_sync({ "branch", "-D", branch }, 5000)
+	end
+end
+
+--------------------------------------------------------------------
+-- Cleanup stale swarm worktrees (pre-wave safety)
+--------------------------------------------------------------------
+
+--- Prune and remove any stale dwight-swarm worktrees.
+--- Called at the top of _execute_wave to ensure a clean slate.
+function M.cleanup_stale()
+	M.git_sync({ "worktree", "prune" }, 5000)
+
+	local raw, code = M.git_sync({ "worktree", "list", "--porcelain" }, 5000)
+	if code ~= 0 or not raw then
+		return
+	end
+
+	for path in raw:gmatch("worktree ([^\n]+)") do
+		if path:match("dwight%-swarm/") or path:match("dwight%-swarm[/\\]") then
+			M.remove(path)
+		end
 	end
 end
 
@@ -523,6 +578,39 @@ end
 --- @param callback function(success, error_msg, conflict_files)
 function M.merge_async(wt_path, wave_num, task_idx, opts, callback)
 	local branch = string.format("dwight-swarm/wave-%d-task-%d", wave_num, task_idx)
+	local called_back = false
+
+	-- Safety net timeout for the entire merge → resolve → commit chain.
+	-- Default 120s, configurable via merge_timeout in swarm_opts.
+	local merge_timeout_ms = (opts.merge_timeout or 120) * 1000
+	local merge_timer = uv.new_timer()
+	merge_timer:start(merge_timeout_ms, 0, function()
+		merge_timer:close()
+		if called_back then
+			return
+		end
+		called_back = true
+		-- Abort any in-progress resolution agent
+		pcall(function()
+			require("dwight.agentic").abort()
+		end)
+		-- Abort the merge itself
+		M.git_sync({ "merge", "--abort" }, 5000)
+		vim.schedule(function()
+			callback(false, "merge operation timed out", nil)
+		end)
+	end)
+
+	local function safe_callback(ok, err, cfiles)
+		if called_back then
+			return
+		end
+		called_back = true
+		if merge_timer and not merge_timer:is_closing() then
+			merge_timer:close()
+		end
+		callback(ok, err, cfiles)
+	end
 
 	local out, code = M.git_sync(
 		{ "merge", "--no-ff", "-m", string.format("merge: swarm wave %d task %d", wave_num, task_idx), branch },
@@ -530,7 +618,7 @@ function M.merge_async(wt_path, wave_num, task_idx, opts, callback)
 	)
 
 	if code == 0 then
-		callback(true, nil, nil)
+		safe_callback(true, nil, nil)
 		return
 	end
 
@@ -539,7 +627,7 @@ function M.merge_async(wt_path, wave_num, task_idx, opts, callback)
 	local has_conflict = status_out and (status_out:match("^UU") or status_out:match("\nUU"))
 
 	if not has_conflict then
-		callback(false, string.format("merge failed: %s", (out or ""):sub(1, 200)), nil)
+		safe_callback(false, string.format("merge failed: %s", (out or ""):sub(1, 200)), nil)
 		return
 	end
 
@@ -550,17 +638,17 @@ function M.merge_async(wt_path, wave_num, task_idx, opts, callback)
 		-- Attempt LLM resolution (merge stays in-progress)
 		M._try_llm_resolve(conflict_files, wave_num, task_idx, function(resolved, info)
 			if resolved then
-				callback(true, nil, nil)
+				safe_callback(true, nil, nil)
 			else
 				-- Resolution failed — abort merge
 				M.git_sync({ "merge", "--abort" }, 5000)
-				callback(false, info and info.error or "LLM resolution failed", conflict_files)
+				safe_callback(false, info and info.error or "LLM resolution failed", conflict_files)
 			end
 		end)
 	else
 		-- No auto-resolve — abort and report
 		M.git_sync({ "merge", "--abort" }, 5000)
-		callback(false, "merge conflict", conflict_files)
+		safe_callback(false, "merge conflict", conflict_files)
 	end
 end
 
