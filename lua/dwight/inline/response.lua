@@ -23,7 +23,7 @@ function M.apply_multi_file(files, job_id)
 	-- Build gate: pre-apply syntax check for multi-file changes (agent mode).
 	-- Check each file's content before applying any changes. If any check fails,
 	-- reject ALL changes to keep the codebase consistent.
-	if not cfg.diff_preview and cfg.pre_apply_check ~= false then
+	if cfg.pre_apply_check ~= false then
 		for _, change in ipairs(files) do
 			if change.content and change.path and change.action ~= "delete" then
 				-- Only check full-file creates/edits (not line-range edits — those are partial)
@@ -33,9 +33,10 @@ function M.apply_multi_file(files, job_id)
 					if not ok then
 						vim.notify(
 							string.format(
-								"[dwight] Job #%d: pre-apply check failed for %s, rejecting multi-file output.",
+								"[dwight] Job #%d: pre-apply check failed for %s: %s",
 								job_id or 0,
-								change.path
+								change.path,
+								(err or "syntax error"):sub(1, 200)
 							),
 							vim.log.levels.WARN
 						)
@@ -54,18 +55,8 @@ function M.apply_multi_file(files, job_id)
 		end
 	end
 
-	if cfg.diff_preview then
-		multifile.preview(files, function() -- on_accept
-			local count = multifile.apply_all(files)
-			vim.notify(string.format("[dwight] Job #%d: %d files changed.", job_id or 0, count), vim.log.levels.INFO)
-		end, function() -- on_reject
-			vim.notify("[dwight] Multi-file changes rejected.", vim.log.levels.INFO)
-		end)
-		return 0 -- applied async
-	else
-		local count = multifile.apply_all(files)
-		return count
-	end
+	local count = multifile.apply_all(files)
+	return count
 end
 
 function M.handle_response(job_id, raw_output, err_output, exit_code, selection, mode_name, prompt_text)
@@ -92,7 +83,13 @@ function M.handle_response(job_id, raw_output, err_output, exit_code, selection,
 
 	if raw_output == "" then
 		log.finish(job_id, "error", "", nil, "Empty output")
-		vim.notify("[dwight] Job #" .. job_id .. ": empty output.", vim.log.levels.WARN)
+		vim.notify(
+			string.format(
+				"[dwight] Job #%d: empty output. Check :DwightLog for details. This can happen if the model returned nothing or the API timed out.",
+				job_id
+			),
+			vim.log.levels.WARN
+		)
 		return
 	end
 
@@ -175,57 +172,26 @@ function M.handle_response(job_id, raw_output, err_output, exit_code, selection,
 
 		local new_lines = vim.split(content, "\n", { plain = true })
 
-		if get_config().diff_preview then
-			require("dwight.diff").show(bufnr, cur_start, cur_end, content, function()
-				buffer._replace_selection_atomic(bufnr, cur_start, cur_end, content)
-				jobs.adjust_other_jobs(job_id, bufnr, cur_start, cur_end, #new_lines)
-				log.finish(job_id, "success", raw_output, content, nil)
-				pcall(function()
-					get_dwight()._last_inline = {
-						job_id = job_id,
-						prompt_text = prompt_text,
-						raw_response = raw_output,
-						parsed_code = content,
-						selection = selection,
-						mode_name = mode_name,
-						new_start = cur_start,
-						new_end = cur_start + #new_lines - 1,
-						bufnr = bufnr,
-					}
-				end)
-				pcall(function()
-					require("dwight.tracker").record(mode_name or "prose", #prompt_text, #raw_output)
-				end)
-				vim.notify("[dwight] Job #" .. job_id .. " accepted.", vim.log.levels.INFO)
-			end, function(reason)
-				log.finish(job_id, "rejected", raw_output, content, reason or "rejected")
-				vim.notify("[dwight] Job #" .. job_id .. " rejected.", vim.log.levels.INFO)
-			end)
-		else
-			buffer._replace_selection_atomic(bufnr, cur_start, cur_end, content)
-			jobs.adjust_other_jobs(job_id, bufnr, cur_start, cur_end, #new_lines)
-			log.finish(job_id, "success", raw_output, content, nil)
-			pcall(function()
-				get_dwight()._last_inline = {
-					job_id = job_id,
-					prompt_text = prompt_text,
-					raw_response = raw_output,
-					parsed_code = content,
-					selection = selection,
-					mode_name = mode_name,
-					new_start = cur_start,
-					new_end = cur_start + #new_lines - 1,
-					bufnr = bufnr,
-				}
-			end)
-			pcall(function()
-				require("dwight.tracker").record(mode_name or "prose", #prompt_text, #raw_output)
-			end)
-			vim.notify(
-				string.format("[dwight] Job #%d: %s applied.", job_id, mode_name or "prose"),
-				vim.log.levels.INFO
-			)
-		end
+		buffer._replace_selection_atomic(bufnr, cur_start, cur_end, content)
+		jobs.adjust_other_jobs(job_id, bufnr, cur_start, cur_end, #new_lines)
+		log.finish(job_id, "success", raw_output, content, nil)
+		pcall(function()
+			get_dwight()._last_inline = {
+				job_id = job_id,
+				prompt_text = prompt_text,
+				raw_response = raw_output,
+				parsed_code = content,
+				selection = selection,
+				mode_name = mode_name,
+				new_start = cur_start,
+				new_end = cur_start + #new_lines - 1,
+				bufnr = bufnr,
+			}
+		end)
+		pcall(function()
+			require("dwight.tracker").record(mode_name or "prose", #prompt_text, #raw_output)
+		end)
+		vim.notify(string.format("[dwight] Job #%d: %s applied.", job_id, mode_name or "prose"), vim.log.levels.INFO)
 		return
 	end
 
@@ -338,7 +304,7 @@ function M._apply_parsed(
 	-- Build gate: pre-apply syntax check (when diff_preview is disabled = agent mode).
 	-- Validates code compiles BEFORE writing to disk. If check fails, the file stays
 	-- clean and the retry loop works against uncorrupted code.
-	if not cfg.diff_preview and cfg.pre_apply_check ~= false then
+	if cfg.pre_apply_check ~= false then
 		local filepath = selection.filepath or api.nvim_buf_get_name(bufnr)
 		local filetype = selection.filetype or vim.bo[bufnr].filetype or ""
 
@@ -372,45 +338,18 @@ function M._apply_parsed(
 				"Pre-apply check failed: " .. (check_err or "unknown")
 			)
 			vim.notify(
-				string.format("[dwight] Job #%d: pre-apply check failed, rejecting output.", job_id),
+				string.format(
+					"[dwight] Job #%d: pre-apply check failed: %s",
+					job_id,
+					(check_err or "syntax error"):sub(1, 200)
+				),
 				vim.log.levels.WARN
 			)
 			return
 		end
 	end
 
-	-- Diff preview: if enabled, show before applying
-	local cfg = get_config()
-	if cfg.diff_preview then
-		require("dwight.diff").show(bufnr, cur_start, cur_end, parsed_code, function() -- on_accept
-			buffer._replace_selection_atomic(bufnr, cur_start, cur_end, parsed_code)
-			jobs.adjust_other_jobs(job_id, bufnr, cur_start, cur_end, #new_lines)
-			log.finish(job_id, "success", raw_output, parsed_code, nil)
-			pcall(function()
-				get_dwight()._last_inline = {
-					job_id = job_id,
-					prompt_text = prompt_text,
-					raw_response = raw_output,
-					parsed_code = parsed_code,
-					selection = selection,
-					mode_name = mode_name,
-					new_start = cur_start,
-					new_end = cur_start + #new_lines - 1,
-					bufnr = bufnr,
-				}
-			end)
-			pcall(function()
-				require("dwight.tracker").record(mode_name or "custom", #prompt_text, #raw_output)
-			end)
-			vim.notify("[dwight] Job #" .. job_id .. " accepted.", vim.log.levels.INFO)
-		end, function(reason) -- on_reject
-			log.finish(job_id, "rejected", raw_output, parsed_code, reason or "rejected")
-			vim.notify("[dwight] Job #" .. job_id .. " rejected.", vim.log.levels.INFO)
-		end)
-		return
-	end
-
-	-- Direct apply (no diff preview)
+	-- Apply
 	buffer._replace_selection_atomic(bufnr, cur_start, cur_end, parsed_code)
 	jobs.adjust_other_jobs(job_id, bufnr, cur_start, cur_end, #new_lines)
 

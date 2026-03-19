@@ -517,7 +517,11 @@ BACKENDS.claude_code = {
 		elseif err_output:match("auth") or err_output:match("login") then
 			return "Claude Code not authenticated. Run 'claude' in terminal to log in."
 		end
-		return "Claude Code failed (exit " .. code .. "): " .. err_output:sub(1, 300)
+		return "Claude Code failed (exit "
+			.. code
+			.. "): "
+			.. err_output:sub(1, 300)
+			.. " Common causes: network issue, max turns reached, or invalid model."
 	end,
 
 	install_hint = "npm i -g @anthropic-ai/claude-code",
@@ -596,7 +600,11 @@ BACKENDS.codex = {
 		elseif err_output:match("OPENAI_API_KEY") or err_output:match("auth") then
 			return "Codex not authenticated. Set OPENAI_API_KEY environment variable."
 		end
-		return "Codex failed (exit " .. code .. "): " .. err_output:sub(1, 300)
+		return "Codex failed (exit "
+			.. code
+			.. "): "
+			.. err_output:sub(1, 300)
+			.. " Common causes: invalid OPENAI_API_KEY, network issue, or rate limit."
 	end,
 
 	install_hint = "npm i -g @openai/codex",
@@ -675,7 +683,11 @@ BACKENDS.gemini = {
 		elseif err_output:match("auth") or err_output:match("GEMINI_API_KEY") then
 			return "Gemini CLI not authenticated. Set GEMINI_API_KEY or run 'gcloud auth login'."
 		end
-		return "Gemini CLI failed (exit " .. code .. "): " .. err_output:sub(1, 300)
+		return "Gemini CLI failed (exit "
+			.. code
+			.. "): "
+			.. err_output:sub(1, 300)
+			.. " Common causes: missing GEMINI_API_KEY, network issue, or rate limit."
 	end,
 
 	install_hint = "npm i -g @google/gemini-cli",
@@ -972,7 +984,14 @@ local function spawn_backend(backend_name, opts)
 		timeout_timer:close()
 		if handle and not handle:is_closing() then
 			vim.schedule(function()
-				on_status(string.format("⏰ %s timed out after %ds — killing", backend_name, timeout_secs))
+				on_status(
+					string.format(
+						"⏰ %s timed out after %ds — killing. Increase agentic_opts.cli_timeout (current: %d) for longer tasks.",
+						backend_name,
+						timeout_secs,
+						timeout_secs
+					)
+				)
 			end)
 			pcall(function()
 				handle:kill("sigkill")

@@ -1,61 +1,22 @@
 -- dwight/inline/api.lua
--- SSE streaming, payload building, and HTTP API calls via curl.
+-- Payload building and HTTP API calls via curl.
 
 local M = {}
 
 local uv = vim.loop or vim.uv
 
-function M.build_payload(format, prompt_text, model_id, max_tokens, stream)
+function M.build_payload(format, prompt_text, model_id, max_tokens)
 	if format == "anthropic" then
 		local body =
 			{ model = model_id, max_tokens = max_tokens, messages = { { role = "user", content = prompt_text } } }
-		if stream then
-			body.stream = true
-		end
 		return vim.json.encode(body)
 	elseif format == "gemini" then
 		return vim.json.encode({ contents = { { parts = { { text = prompt_text } } } } })
 	else
 		local body =
 			{ model = model_id, max_tokens = max_tokens, messages = { { role = "user", content = prompt_text } } }
-		if stream then
-			body.stream = true
-		end
 		return vim.json.encode(body)
 	end
-end
-
-function M.parse_sse_chunk(format, line)
-	if not line or line == "" or line:match("^:") then
-		return nil
-	end
-	local data = line:match("^data: (.+)$")
-	if not data then
-		return nil
-	end
-	if data == "[DONE]" then
-		return nil
-	end
-
-	local ok, event = pcall(vim.json.decode, data)
-	if not ok then
-		return nil
-	end
-
-	if format == "anthropic" then
-		if event.type == "content_block_delta" and event.delta and event.delta.text then
-			return event.delta.text
-		end
-	else
-		-- OpenAI-compatible
-		if event.choices and event.choices[1] then
-			local delta = event.choices[1].delta
-			if delta and delta.content then
-				return delta.content
-			end
-		end
-	end
-	return nil
 end
 
 function M.extract_text(format, resp)
@@ -126,8 +87,7 @@ function M.api_call(prompt_text, model_override, cfg, callback, opts)
 
 	local format = provider.format or "openai"
 	local max_tokens = cfg.max_tokens or 4096
-	local streaming = cfg.streaming and format ~= "gemini" -- Gemini doesn't use SSE
-	local payload = M.build_payload(format, prompt_text, model_id, max_tokens, streaming)
+	local payload = M.build_payload(format, prompt_text, model_id, max_tokens)
 
 	-- Track the model being used
 	pcall(function()
@@ -161,9 +121,6 @@ function M.api_call(prompt_text, model_override, cfg, callback, opts)
 		"-H",
 		"Content-Type: application/json",
 	}
-	if streaming then
-		table.insert(curl_args, "--no-buffer")
-	end
 	if provider.auth_header then
 		table.insert(curl_args, "-H")
 		table.insert(curl_args, provider.auth_header .. ": " .. (provider.auth_prefix or "") .. api_key)
@@ -182,8 +139,6 @@ function M.api_call(prompt_text, model_override, cfg, callback, opts)
 
 	local stdout_chunks = {}
 	local stderr_chunks = {}
-	local stream_text = {} -- accumulated text from SSE events
-	local stream_chars = 0 -- progress counter
 	local stdout = uv.new_pipe(false)
 	local stderr = uv.new_pipe(false)
 
@@ -211,13 +166,7 @@ function M.api_call(prompt_text, model_override, cfg, callback, opts)
 				return
 			end
 
-			if streaming and #stream_text > 0 then
-				-- Already parsed via SSE — return accumulated text
-				callback(table.concat(stream_text, ""), nil)
-				return
-			end
-
-			-- Non-streaming: parse full JSON response
+			-- Parse full JSON response
 			local raw_json = table.concat(stdout_chunks, "")
 			local ok, resp = pcall(vim.json.decode, raw_json)
 			if not ok then
@@ -241,45 +190,11 @@ function M.api_call(prompt_text, model_override, cfg, callback, opts)
 		return
 	end
 
-	if streaming then
-		-- Parse SSE events as they arrive, show progress
-		local sse_buffer = ""
-		stdout:read_start(function(err, data)
-			if err or not data then
-				return
-			end
+	stdout:read_start(function(err, data)
+		if not err and data then
 			stdout_chunks[#stdout_chunks + 1] = data
-			sse_buffer = sse_buffer .. data
-
-			-- Process complete SSE lines
-			while true do
-				local nl = sse_buffer:find("\n")
-				if not nl then
-					break
-				end
-				local line = sse_buffer:sub(1, nl - 1):gsub("\r$", "")
-				sse_buffer = sse_buffer:sub(nl + 1)
-
-				local text = M.parse_sse_chunk(format, line)
-				if text then
-					stream_text[#stream_text + 1] = text
-					stream_chars = stream_chars + #text
-					-- Show progress (throttled to every ~200 chars)
-					if stream_chars % 200 < #text and opts.on_progress then
-						vim.schedule(function()
-							opts.on_progress(stream_chars)
-						end)
-					end
-				end
-			end
-		end)
-	else
-		stdout:read_start(function(err, data)
-			if not err and data then
-				stdout_chunks[#stdout_chunks + 1] = data
-			end
-		end)
-	end
+		end
+	end)
 	stderr:read_start(function(err, data)
 		if not err and data then
 			stderr_chunks[#stderr_chunks + 1] = data

@@ -154,4 +154,69 @@ function M._git_rollback(status)
 	return true
 end
 
+--- List recent commits for interactive undo.
+--- @param n number|nil Number of commits to list (default 20)
+--- @return table List of { hash = string, message = string }
+function M.list_dwight_commits(n)
+	n = n or 20
+	if not M.is_git_repo() then
+		return {}
+	end
+
+	local output, code = M.git_sync({ "log", "--oneline", "-" .. n, "--format=%H %s" }, 5000)
+	if code ~= 0 or not output or vim.trim(output) == "" then
+		return {}
+	end
+
+	local commits = {}
+	for line in output:gmatch("[^\n]+") do
+		local hash, message = line:match("^(%S+)%s+(.+)$")
+		if hash and message then
+			commits[#commits + 1] = { hash = hash, message = message }
+		end
+	end
+	return commits
+end
+
+--- Interactive undo: pick a commit and reset to before it.
+function M.undo_interactive()
+	local commits = M.list_dwight_commits(20)
+	if #commits == 0 then
+		vim.notify("[dwight] No recent commits to undo.", vim.log.levels.INFO)
+		return
+	end
+
+	local items = {}
+	for _, c in ipairs(commits) do
+		items[#items + 1] = c.hash:sub(1, 7) .. " " .. c.message
+	end
+
+	require("dwight.select").pick(items, { prompt = "Undo to before:" }, function(choice, idx)
+		if not choice or not idx then
+			return
+		end
+
+		local selected = commits[idx]
+		vim.ui.select({ "Reset to before this commit", "Cancel" }, {
+			prompt = "Reset to before " .. selected.hash:sub(1, 7) .. "?",
+		}, function(action)
+			if not action or action == "Cancel" then
+				return
+			end
+
+			local _, code = M.git_sync({ "reset", "--hard", selected.hash .. "~1" }, 10000)
+			if code ~= 0 then
+				vim.notify("[dwight] Git reset failed.", vim.log.levels.ERROR)
+				return
+			end
+			M.git_sync({ "clean", "-fd" }, 5000)
+			vim.cmd("checktime")
+			vim.notify(
+				string.format("[dwight] Reset to before %s (%s)", selected.hash:sub(1, 7), selected.message:sub(1, 50)),
+				vim.log.levels.INFO
+			)
+		end)
+	end)
+end
+
 return M

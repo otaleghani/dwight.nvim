@@ -199,8 +199,6 @@ local KNOWN_TOP = {
 	"border",
 	"comment_styles",
 	"timeout",
-	"diff_preview",
-	"streaming",
 	"git_context",
 	"parallel_steps",
 	"agentic_opts",

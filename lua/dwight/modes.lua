@@ -511,4 +511,99 @@ function M.resolve_model(mode_name)
 	return nil
 end
 
+--------------------------------------------------------------------
+-- Mode browser
+--------------------------------------------------------------------
+
+function M.pick()
+	local names = M.list()
+	if #names == 0 then
+		vim.notify("[dwight] No modes registered.", vim.log.levels.INFO)
+		return
+	end
+
+	local has_telescope = pcall(require, "telescope")
+	if has_telescope then
+		M._pick_telescope(names)
+	else
+		M._pick_native(names)
+	end
+end
+
+function M._pick_native(names)
+	local items = {}
+	for _, name in ipairs(names) do
+		local mode = M.registry[name]
+		if mode then
+			local icon = mode.icon or "◆"
+			local desc = mode.description or ""
+			local ctx = mode.context or "both"
+			items[#items + 1] = string.format("%s %s — %s (%s)", icon, name, desc, ctx)
+		end
+	end
+	require("dwight.select").pick(items, { prompt = "Modes:" }, function(choice, idx)
+		if choice and idx then
+			local name = names[idx]
+			vim.fn.setreg("+", "/" .. name)
+			vim.notify(string.format("[dwight] Copied /%s to clipboard.", name), vim.log.levels.INFO)
+		end
+	end)
+end
+
+function M._pick_telescope(names)
+	local pickers = require("telescope.pickers")
+	local finders = require("telescope.finders")
+	local conf = require("telescope.config").values
+	local actions = require("telescope.actions")
+	local action_state = require("telescope.actions.state")
+	local previewers = require("telescope.previewers")
+
+	local entries = {}
+	for _, name in ipairs(names) do
+		local mode = M.registry[name]
+		if mode then
+			entries[#entries + 1] = { name = name, mode = mode }
+		end
+	end
+
+	pickers
+		.new({}, {
+			prompt_title = "🎯 Modes",
+			finder = finders.new_table({
+				results = entries,
+				entry_maker = function(entry)
+					local icon = entry.mode.icon or "◆"
+					local desc = entry.mode.description or ""
+					local ctx = entry.mode.context or "both"
+					local display = string.format("%s %s — %s (%s)", icon, entry.name, desc, ctx)
+					return { value = entry, display = display, ordinal = entry.name .. " " .. desc }
+				end,
+			}),
+			sorter = conf.generic_sorter({}),
+			previewer = previewers.new_buffer_previewer({
+				define_preview = function(self, entry)
+					local task = entry.value.mode.task or "(no prompt template)"
+					local lines = vim.split(task, "\n")
+					vim.api.nvim_buf_set_lines(self.state.bufnr, 0, -1, false, lines)
+					vim.bo[self.state.bufnr].filetype = "markdown"
+				end,
+			}),
+			attach_mappings = function(prompt_bufnr)
+				actions.select_default:replace(function()
+					local entry = action_state.get_selected_entry()
+					actions.close(prompt_bufnr)
+					if entry then
+						vim.fn.setreg("+", "/" .. entry.value.name)
+						vim.notify(
+							string.format("[dwight] Copied /%s to clipboard.", entry.value.name),
+							vim.log.levels.INFO
+						)
+					end
+				end)
+				return true
+			end,
+		})
+		:find()
+end
+
 return M

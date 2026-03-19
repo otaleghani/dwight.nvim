@@ -58,12 +58,6 @@ M.defaults = {
 	comment_styles = nil,
 	timeout = 120000, -- ms. Agent auto-scales 2x for files >200 lines.
 
-	-- Diff preview: show changes before applying
-	diff_preview = false,
-
-	-- Streaming: show progress as AI generates (requires SSE-compatible provider)
-	streaming = false,
-
 	-- Git-aware context: auto-include diffs and blame
 	git_context = true,
 
@@ -225,6 +219,23 @@ function M.setup(opts)
 		callback = function()
 			errors.try("progress.stop", function()
 				require_mod("progress").stop()
+			end)
+		end,
+	})
+
+	-- Cleanup all agent processes, inline jobs, and swarm worktrees on exit
+	vim.api.nvim_create_autocmd("VimLeavePre", {
+		callback = function()
+			errors.try("agentic.abort_all", function()
+				require_mod("agentic").abort_all()
+			end)
+			errors.try("inline_jobs.cleanup", function()
+				for id, job in pairs(M._active_jobs) do
+					M._kill_job(id, job)
+				end
+			end)
+			errors.try("worktree.cleanup_all", function()
+				require_mod("swarm.worktree").cleanup_all()
 			end)
 		end,
 	})

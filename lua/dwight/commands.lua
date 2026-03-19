@@ -89,6 +89,11 @@ function M.register()
 		require_mod("multifile").undo_all()
 	end, { desc = "Undo last multi-file change set" })
 
+	-- Interactive undo: pick from recent commits
+	cmd("DwightUndo", function()
+		require_mod("auto.git").undo_interactive()
+	end, { desc = "Undo dwight checkpoint commits interactively" })
+
 	-- Agent: autonomous TDD loop
 	cmd("DwightAgent", function(o)
 		local args = o.args or ""
@@ -126,6 +131,10 @@ function M.register()
 	cmd("DwightSkills", function()
 		require_mod("skills").pick()
 	end, { desc = "Browse skills" })
+
+	cmd("DwightModes", function()
+		require_mod("modes").pick()
+	end, { desc = "Browse available modes" })
 	cmd("DwightGenSkill", function()
 		require_mod("skills").generate()
 	end, { desc = "Generate skill" })
@@ -877,18 +886,6 @@ function M.register()
 	cmd("DwightMCP", function()
 		require_mod("mcp").status()
 	end, { desc = "Show MCP server status" })
-
-	-- Diff preview toggle
-	cmd("DwightDiffToggle", function()
-		dwight.config.diff_preview = not dwight.config.diff_preview
-		vim.notify("[dwight] Diff preview: " .. (dwight.config.diff_preview and "ON" or "OFF"), vim.log.levels.INFO)
-	end, { desc = "Toggle diff preview before applying changes" })
-
-	-- Streaming toggle
-	cmd("DwightStreamToggle", function()
-		dwight.config.streaming = not dwight.config.streaming
-		vim.notify("[dwight] Streaming: " .. (dwight.config.streaming and "ON" or "OFF"), vim.log.levels.INFO)
-	end, { desc = "Toggle streaming responses" })
 
 	-- Git context toggle
 	cmd("DwightGitToggle", function()
