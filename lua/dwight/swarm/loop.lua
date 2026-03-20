@@ -34,7 +34,7 @@ end
 -- Build project context (shared across all tasks in a wave)
 --------------------------------------------------------------------
 
-local function build_context(prev_wave_results)
+local function build_context(prev_wave_results, request)
 	local parts = {}
 	local errors = require("dwight.errors")
 
@@ -66,6 +66,37 @@ local function build_context(prev_wave_results)
 				end
 			end
 			parts[#parts + 1] = "<project_tree>\n" .. table.concat(lines, "\n") .. "\n</project_tree>"
+		end
+	end)
+
+	-- Inject skills + libs + pragma instructions via integration module
+	errors.try("swarm.context.integration", function()
+		local integration = require("dwight.integration")
+		local full_ctx = integration.build_full_context()
+		if full_ctx then
+			parts[#parts + 1] = full_ctx
+		end
+	end)
+
+	-- Inject lessons from past sessions
+	errors.try("swarm.context.lessons", function()
+		local lessons_mod = require("dwight.agent.lessons")
+		local lessons = lessons_mod._find_relevant_lessons(request or "")
+		if #lessons > 0 then
+			local lesson_parts = { "\n## Lessons from Past Sessions" }
+			for _, l in ipairs(lessons) do
+				lesson_parts[#lesson_parts + 1] = "- " .. l.text
+			end
+			parts[#parts + 1] = table.concat(lesson_parts, "\n")
+		end
+	end)
+
+	-- Inject recent session context (cross-mode bridge)
+	errors.try("swarm.context.last_session", function()
+		local integration = require("dwight.integration")
+		local last_ctx = integration.read_last_session_context()
+		if last_ctx then
+			parts[#parts + 1] = last_ctx
 		end
 	end)
 
@@ -188,7 +219,7 @@ function M._execute_wave(wave, wave_idx, total_waves, request, status, prev_wave
 	end
 
 	-- Step 2: Build shared context
-	local context = build_context(prev_wave_results)
+	local context = build_context(prev_wave_results, request)
 
 	-- Step 3: Run agents in parallel
 	pool.run_batch(
@@ -254,6 +285,28 @@ function M._execute_wave(wave, wave_idx, total_waves, request, status, prev_wave
 						),
 						"DwightFail"
 					)
+				end
+			end
+
+			-- Extract lessons from each successful task result
+			for _, r in ipairs(results) do
+				if r.success and r.data and r.data.journal then
+					pcall(function()
+						local lessons_mod = require("dwight.agent.lessons")
+						lessons_mod._extract_lessons(
+							{
+								request = r.title,
+								had_error = false,
+								timestamp = os.time(),
+							},
+							r.data.journal,
+							function(lessons_out)
+								if lessons_out and #lessons_out > 0 then
+									lessons_mod._append_lessons(lessons_out)
+								end
+							end
+						)
+					end)
 				end
 			end
 
@@ -332,6 +385,20 @@ function M._execute_wave(wave, wave_idx, total_waves, request, status, prev_wave
 							pcall(function()
 								local git = require("dwight.auto.git")
 								git._git_checkpoint(wave_idx, total_waves, "wave " .. wave_idx .. " merged", status)
+							end)
+
+							-- Pragma sync + feature rebuild after successful merge
+							pcall(function()
+								local integration = require("dwight.integration")
+								local feature_name = integration.detect_feature_name(request)
+								local sync = integration.pragma_sync(feature_name)
+								if #sync.added > 0 then
+									status.append_hl(
+										string.format("  Pragma sync: tagged %d new file(s)", #sync.added),
+										"DwightOK"
+									)
+								end
+								integration.rebuild_features()
 							end)
 
 							status.append_hl(
@@ -505,6 +572,34 @@ function M.run(waves, start_from, request, master_started, status, prev_wave_res
 			pcall(function()
 				local agent = require("dwight.agent")
 				agent._show_post_diff(status)
+			end)
+
+			-- Post-session integration (feature warnings, squash hint, PR hint)
+			pcall(function()
+				local integration = require("dwight.integration")
+				local sessions = {}
+				for _, wr in ipairs(prev_wave_results) do
+					for _, tr in ipairs(wr.task_results or {}) do
+						sessions[#sessions + 1] = {
+							summary = tr.summary or tr.title,
+							files_created = {},
+							files_edited = {},
+						}
+					end
+				end
+				integration.post_session(request, sessions, status)
+			end)
+
+			-- Write last session summary (cross-mode context bridge)
+			pcall(function()
+				local integration = require("dwight.integration")
+				integration.write_last_session({
+					mode = "swarm",
+					request = request,
+					success = true,
+					duration = total_duration,
+					cost = total_cost,
+				})
 			end)
 
 			-- Write session log

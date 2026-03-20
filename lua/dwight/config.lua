@@ -207,6 +207,8 @@ local KNOWN_TOP = {
 	"mcp_servers",
 	"languages",
 	"modes",
+	"agent_checkpoint",
+	"agent_gates",
 }
 
 local KNOWN_AGENTIC = {

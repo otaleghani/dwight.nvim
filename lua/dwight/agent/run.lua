@@ -128,7 +128,9 @@ function M._run_agentic(request, opts)
 		status_mod.append("Running in agentic mode (tool-use loop)")
 	end
 
-	-- Pre-work git safety: warn about dirty state
+	-- Pre-work: optional git checkpoint
+	local cfg = require("dwight").config
+	local pre_checkpoint_sha = nil
 	pcall(function()
 		local status_out = vim.fn.system("git status --porcelain 2>/dev/null")
 		if status_out and vim.trim(status_out) ~= "" then
@@ -136,8 +138,17 @@ function M._run_agentic(request, opts)
 			for _ in status_out:gmatch("[^\n]+") do
 				count = count + 1
 			end
-			status_mod.append(string.format("WARN: %d uncommitted change(s) in working tree", count))
-			status_mod.append("   Tip: commit or stash first, or use :DwightGit stash")
+			if cfg.agent_checkpoint ~= false then
+				vim.fn.system("git add -A 2>/dev/null")
+				vim.fn.system('git commit -m "dwight: pre-agent checkpoint" --no-verify 2>/dev/null')
+				if vim.v.shell_error == 0 then
+					pre_checkpoint_sha = vim.trim(vim.fn.system("git rev-parse HEAD 2>/dev/null"))
+					status_mod.append(string.format("Pre-agent checkpoint (%d files)", count))
+				end
+			else
+				status_mod.append(string.format("WARN: %d uncommitted change(s) in working tree", count))
+				status_mod.append("   Tip: commit or stash first, or use :DwightGit stash")
+			end
 		end
 	end)
 
@@ -160,6 +171,15 @@ function M._run_agentic(request, opts)
 		local feature_ctx = integration.build_feature_context(request)
 		if feature_ctx then
 			context = context .. "\n\n" .. feature_ctx
+		end
+	end)
+
+	-- Inject recent session context (cross-mode bridge)
+	pcall(function()
+		local integration = require("dwight.integration")
+		local last_ctx = integration.read_last_session_context()
+		if last_ctx then
+			context = context .. "\n\n" .. last_ctx
 		end
 	end)
 
@@ -227,6 +247,8 @@ function M._run_agentic(request, opts)
 		end
 	end)
 
+	status_mod.phase("Execution")
+
 	agentic.run({
 		task = request,
 		context = context,
@@ -235,7 +257,11 @@ function M._run_agentic(request, opts)
 			-- Only surface structured events (test/build results) in the buffer
 			if text:match("Tests? FAILED") or text:match("Build failed") then
 				status_mod.stop_spin()
-				status_mod.append_hl("  " .. text:sub(1, 200), "DwightFail")
+				if #text > 60 then
+					status_mod.error_block(text:sub(1, 56), text:sub(1, 1000))
+				else
+					status_mod.append_hl("  " .. text:sub(1, 200), "DwightFail")
+				end
 				status_mod.spin("working..." .. fmt_tools() .. "  " .. (os.time() - started) .. "s")
 			elseif text:match("Tests? passed") or text:match("Build OK") then
 				status_mod.stop_spin()
@@ -255,7 +281,8 @@ function M._run_agentic(request, opts)
 			local key = classify_tool(desc)
 			tool_counts[key] = tool_counts[key] + 1
 			tool_log[#tool_log + 1] = desc:sub(1, 120)
-			status_mod.spin("working..." .. fmt_tools() .. "  " .. (os.time() - started) .. "s")
+			local action = desc:sub(1, 25)
+			status_mod.spin("working..." .. fmt_tools() .. "  " .. (os.time() - started) .. "s  " .. action)
 			-- Log detail to session_log
 			pcall(function()
 				require("dwight.session_log").append("  " .. desc)
@@ -266,19 +293,49 @@ function M._run_agentic(request, opts)
 			local duration = os.time() - started
 			status_mod.stop_spin()
 
-			-- Foldable detail section with all tool calls
-			if #tool_log > 0 then
-				local total_tools = 0
-				for _, v in pairs(tool_counts) do
-					total_tools = total_tools + v
-				end
-				status_mod.append_fold(string.format("  ▸ Details (%d tool calls)", total_tools), tool_log)
-			end
+			status_mod.phase("Results")
+
+			-- Foldable detail section with all tool calls (grouped by type)
+			status_mod.tool_fold(tool_log, tool_counts)
 
 			status_mod.end_session(success, duration)
 
 			-- Post-session diff review: show what changed
+			status_mod.phase("Diff")
 			diff_mod._show_post_diff(status_mod, pre_head)
+
+			-- Post-agent: git checkpoint
+			if cfg.agent_checkpoint ~= false then
+				pcall(function()
+					local status_out = vim.fn.system("git status --porcelain 2>/dev/null")
+					if status_out and vim.trim(status_out) ~= "" then
+						vim.fn.system("git add -A 2>/dev/null")
+						local msg = require("dwight.integration").smart_commit_message(1, 1, request:sub(1, 60))
+						vim.fn.system(
+							string.format("git commit -m %s --no-verify 2>/dev/null", vim.fn.shellescape(msg))
+						)
+						if vim.v.shell_error == 0 then
+							status_mod.append("Post-agent checkpoint committed")
+						end
+					end
+				end)
+			end
+
+			-- Post-agent: optional verification gates
+			status_mod.phase("Verification")
+			if cfg.agent_gates ~= false and success then
+				pcall(function()
+					local gates = require("dwight.gates")
+					gates.run_all(status_mod, function(gate_passed, gate_output)
+						if gate_passed then
+							status_mod.append_hl("  Verification gates passed", "DwightOK")
+						else
+							status_mod.append_hl("  Verification gates FAILED", "DwightFail")
+							status_mod.append_hl("  Run :DwightAgent /fix or review manually", "DwightDim")
+						end
+					end)
+				end)
+			end
 
 			-- Post-session integration (feature warnings, squash hint, PR hint)
 			pcall(function()
@@ -318,6 +375,18 @@ function M._run_agentic(request, opts)
 						end
 					end
 				)
+			end)
+
+			-- Write last session summary (cross-mode context bridge)
+			pcall(function()
+				local integration = require("dwight.integration")
+				integration.write_last_session({
+					mode = "agent",
+					request = request,
+					success = success,
+					duration = duration,
+					cost = status_mod.session_cost and status_mod.session_cost() or 0,
+				})
 			end)
 
 			if success then

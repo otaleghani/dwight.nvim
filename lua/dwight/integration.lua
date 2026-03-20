@@ -755,4 +755,70 @@ function M.squash()
 	end
 end
 
+--------------------------------------------------------------------
+-- Cross-mode context bridge
+--------------------------------------------------------------------
+
+--- Write a compact session summary for cross-mode context injection.
+--- @param opts table { mode, request, success, duration, cost, changed_features, summary }
+function M.write_last_session(opts)
+	local project = require("dwight.project")
+	if not project.is_initialized() then
+		return
+	end
+	local path = project.dir() .. "/last_session.json"
+	local f = io.open(path, "w")
+	if f then
+		f:write(vim.json.encode({
+			mode = opts.mode,
+			request = (opts.request or ""):sub(1, 200),
+			success = opts.success,
+			timestamp = os.time(),
+			duration = opts.duration,
+			cost = opts.cost,
+			changed_features = opts.changed_features,
+			summary = (opts.summary or ""):sub(1, 500),
+		}))
+		f:close()
+	end
+end
+
+--- Read the last session and format it for prompt injection.
+--- Returns nil if no recent session (> 2 hours old) or project not initialized.
+function M.read_last_session_context()
+	local project = require("dwight.project")
+	if not project.is_initialized() then
+		return nil
+	end
+	local path = project.dir() .. "/last_session.json"
+	local f = io.open(path, "r")
+	if not f then
+		return nil
+	end
+	local raw = f:read("*a")
+	f:close()
+	local ok, data = pcall(vim.json.decode, raw)
+	if not ok or not data then
+		return nil
+	end
+	-- Only inject if recent (< 2 hours)
+	if os.time() - (data.timestamp or 0) > 7200 then
+		return nil
+	end
+	local changed = ""
+	if data.changed_features and #data.changed_features > 0 then
+		changed = table.concat(data.changed_features, ", ")
+	else
+		changed = "(unknown)"
+	end
+	return string.format(
+		"\n## Recent Project Activity\nA %s session just %s (%ds ago): %s\nChanged features: %s",
+		data.mode or "?",
+		data.success and "completed" or "failed",
+		os.time() - (data.timestamp or 0),
+		data.request or "?",
+		changed
+	)
+end
+
 return M
