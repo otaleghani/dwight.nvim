@@ -115,7 +115,6 @@ All commands are prefixed with `:Dwight`. Most accept optional arguments and pro
 | `:DwightCommit` | | Generate commit message from staged changes |
 | `:DwightSquash` | | Squash dwight checkpoint commits into one |
 | `:DwightDiffReview` | | Open full diff of recent changes |
-| `:DwightDiffToggle` | | Toggle diff preview |
 | `:DwightGitToggle` | | Toggle git diff/blame in prompts |
 
 ---
@@ -255,7 +254,6 @@ All commands are prefixed with `:Dwight`. Most accept optional arguments and pro
 | `:DwightAddProvider` | | Add a custom API provider |
 | `:DwightAuthMax` | | Authenticate with Anthropic Pro/Max |
 | `:DwightMCP` | | Show MCP server status |
-| `:DwightStreamToggle` | | Toggle streaming output |
 
 ---
 

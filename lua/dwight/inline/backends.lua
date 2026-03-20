@@ -516,9 +516,7 @@ function M.run(prompt_text, selection, cfg, mode_name, model_override, think_dep
 		started = os.time(),
 		is_lint = opts.is_lint or false,
 		is_macro = opts.is_macro or false,
-		is_docs = opts.is_docs or false,
 		is_prose = opts.is_prose or false,
-		is_plan = opts.is_plan or false,
 		is_multi = opts.is_multi or false,
 		audit_model = opts.audit_model or nil,
 	}

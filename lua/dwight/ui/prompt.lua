@@ -427,9 +427,7 @@ function M.open_prompt(selection, opts)
 								audit_model = parsed.audit_model,
 								is_lint = mode.is_lint,
 								is_macro = mode.is_macro,
-								is_docs = mode.is_docs,
 								is_prose = mode.context == "prose",
-								is_plan = mode.is_plan,
 								is_multi = mode.is_multi,
 							}
 						)

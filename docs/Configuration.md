@@ -203,8 +203,6 @@ require("dwight").setup({
 Some settings can be toggled at runtime:
 
 ```vim
-:DwightDiffToggle       " Toggle diff preview on/off
-:DwightStreamToggle     " Toggle streaming on/off
 :DwightGitToggle        " Toggle git context on/off
 :DwightBackend codex    " Switch backend
 :DwightSwitch opus      " Switch model

@@ -429,19 +429,8 @@ function M.build(
 	-- Check if mode supports multi-file or is prose
 	local is_multi = mode.is_multi or false
 	local is_prose = mode.context == "prose"
-	local is_plan = mode.is_plan or false
 
-	if is_plan then
-		parts[#parts + 1] = [[
-
-<rules>
-1. Reply with ONLY a structured plan in markdown format.
-2. Include <!-- @dwight:action --> and <!-- @dwight:prompt --> directives.
-3. Flag every gray area with ⚠️ in "Decisions Needed".
-4. Each step should be one small, atomic change.
-5. Order steps by dependency. End with a verification step.
-</rules>]]
-	elseif is_prose then
+	if is_prose then
 		parts[#parts + 1] = [=[
 
 <rules>
