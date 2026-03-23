@@ -17,6 +17,7 @@ local api = vim.api
 M._file = nil -- io file handle
 M._path = nil -- resolved file path
 M._original_notify = nil -- original vim.notify before our hook
+M._in_notify_hook = false -- re-entrancy guard for vim.notify hook
 
 --------------------------------------------------------------------
 -- File management
@@ -105,6 +106,11 @@ local function hook_notify()
 	M._original_notify = vim.notify
 
 	vim.notify = function(msg, level, opts)
+		if M._in_notify_hook then
+			return M._original_notify(msg, level, opts)
+		end
+		M._in_notify_hook = true
+
 		-- Always pass through to original
 		M._original_notify(msg, level, opts)
 
@@ -118,6 +124,8 @@ local function hook_notify()
 			end
 			M.append(msg .. level_tag)
 		end
+
+		M._in_notify_hook = false
 	end
 end
 

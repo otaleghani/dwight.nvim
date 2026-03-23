@@ -170,6 +170,7 @@ function M.setup(opts)
 			claude_code = M.config.claude_code_model or M.config.model or "sonnet",
 			codex = M.config.codex_model or "codex",
 			gemini = M.config.gemini_model or "gemini",
+			opencode = M.config.model or "opencode",
 		}
 		local model = model_map[M.config.backend]
 		if model then
