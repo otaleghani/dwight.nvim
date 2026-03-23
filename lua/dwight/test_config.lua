@@ -260,3 +260,62 @@ T.test("check_backend_binary: missing binary produces warning", function()
 	T.ok(#msgs > 0)
 	T.match("not found", msgs[1].msg)
 end)
+
+--------------------------------------------------------------------
+-- config.check_all integration
+--------------------------------------------------------------------
+
+io.write("── config.check_all integration ──\n")
+
+T.test("check_all: opencode backend with no user agentic_opts produces no deprecation warning", function()
+	-- This is the exact scenario from issue #4
+	local defaults = require("dwight.init").defaults
+	local user_opts = { backend = "opencode" }
+	local cfg = vim.tbl_deep_extend("force", {}, defaults, user_opts)
+
+	local warnings = {}
+	local orig_notify = vim.notify
+	vim.notify = function(msg, level, _)
+		if type(msg) == "string" and msg:match("claude_code_timeout") then
+			warnings[#warnings + 1] = msg
+		end
+	end
+
+	config.check_all(cfg, user_opts)
+
+	vim.notify = orig_notify
+	T.len(0, warnings, "should not warn about claude_code_timeout when user didn't set it")
+end)
+
+T.test("check_all: default backend with no user opts produces no deprecation warning", function()
+	local defaults = require("dwight.init").defaults
+	local cfg = vim.tbl_deep_extend("force", {}, defaults, {})
+
+	local warnings = {}
+	local orig_notify = vim.notify
+	vim.notify = function(msg, level, _)
+		if type(msg) == "string" and msg:match("claude_code_timeout") then
+			warnings[#warnings + 1] = msg
+		end
+	end
+
+	config.check_all(cfg, {})
+
+	vim.notify = orig_notify
+	T.len(0, warnings, "default config should produce no deprecation warnings")
+end)
+
+T.test("check_all: claude_code_timeout is cleaned from cfg after migration", function()
+	local defaults = require("dwight.init").defaults
+	local user_opts = { agentic_opts = { claude_code_timeout = 300 } }
+	local cfg = vim.tbl_deep_extend("force", {}, defaults, user_opts)
+
+	local orig_notify = vim.notify
+	vim.notify = function() end
+
+	config.check_all(cfg, user_opts)
+
+	vim.notify = orig_notify
+	T.is_nil(cfg.agentic_opts.claude_code_timeout, "claude_code_timeout should be nil after migration")
+	T.eq(300, cfg.agentic_opts.cli_timeout, "cli_timeout should have the migrated value")
+end)
