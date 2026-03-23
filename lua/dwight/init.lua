@@ -68,7 +68,6 @@ M.defaults = {
 	agentic_opts = {
 		max_output_tokens = 64000, -- per-response output token budget (Claude Code)
 		cli_timeout = 600, -- seconds before killing a CLI agent session (10 min)
-		claude_code_timeout = 600, -- alias for cli_timeout (backwards compat)
 		reflection = false, -- agent self-reflection/retry gate
 	},
 
