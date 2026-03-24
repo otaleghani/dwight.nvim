@@ -140,28 +140,37 @@ end
 --- Migrate deprecated config keys in-place.
 --- Currently: agentic_opts.claude_code_timeout → cli_timeout
 --- @param cfg table The merged config
+--- @param user_opts table|nil The raw user opts (before merging with defaults)
 --- @return table messages List of { level, msg } for any migrations performed
-function M.migrate_deprecated(cfg)
+function M.migrate_deprecated(cfg, user_opts)
 	local msgs = {}
 	local ac = cfg.agentic_opts
 	if not ac then
 		return msgs
 	end
 
-	if ac.claude_code_timeout and not ac.cli_timeout then
-		-- Migrate: rename to cli_timeout
+	local user_ac = (user_opts or {}).agentic_opts or {}
+	local user_set_deprecated = user_ac.claude_code_timeout ~= nil
+	local user_set_cli = user_ac.cli_timeout ~= nil
+
+	if user_set_deprecated and not user_set_cli then
+		-- User only set the old name: migrate
 		ac.cli_timeout = ac.claude_code_timeout
+		ac.claude_code_timeout = nil
 		msgs[#msgs + 1] = {
 			level = "WARN",
 			msg = "agentic_opts.claude_code_timeout is deprecated, use agentic_opts.cli_timeout instead",
 		}
-	elseif ac.claude_code_timeout and ac.cli_timeout then
-		-- Both set: cli_timeout wins, just warn
+	elseif user_set_deprecated and user_set_cli then
+		-- User explicitly set both: cli_timeout wins, warn
+		ac.claude_code_timeout = nil
 		msgs[#msgs + 1] = {
 			level = "WARN",
 			msg = "Both agentic_opts.cli_timeout and claude_code_timeout are set; cli_timeout takes precedence",
 		}
 	end
+
+	-- If user didn't set claude_code_timeout at all (most common case), no warning needed
 
 	return msgs
 end
@@ -207,6 +216,8 @@ local KNOWN_TOP = {
 	"mcp_servers",
 	"languages",
 	"modes",
+	"agent_checkpoint",
+	"agent_gates",
 }
 
 local KNOWN_AGENTIC = {
@@ -352,7 +363,7 @@ function M.check_all(cfg, user_opts)
 	local all_msgs = {}
 
 	-- 1. Migrate deprecated keys (modifies cfg in-place)
-	local migrate_msgs = M.migrate_deprecated(cfg)
+	local migrate_msgs = M.migrate_deprecated(cfg, user_opts)
 	for _, m in ipairs(migrate_msgs) do
 		all_msgs[#all_msgs + 1] = m
 	end

@@ -54,7 +54,7 @@ Modes are pre-built instructions for common tasks. Each mode constrains the AI's
 | Mode | Description |
 |------|-------------|
 | `brainstorm` | Generate ideas and approaches from selected text |
-| `plan` | Create a structured implementation plan with `@dwight:action` steps |
+| `plan` | Create a structured implementation plan |
 | `refine` | Improve clarity, fix grammar, make text more actionable |
 | `docs` | Generate user-facing or developer documentation |
 
@@ -114,7 +114,7 @@ The prompt buffer opened by `:DwightInvoke` supports special tokens:
 - **Let treesitter pick the scope.** In normal mode, `:DwightInvoke` auto-selects the enclosing function/class. No need to visually select unless you want a specific range.
 - **Use `/lint` before `/fix`.** Lint gives you a diagnostic overview; fix acts on it. Running lint first lets you decide which issues are worth fixing.
 - **Combine modes with skills.** `/refactor @go-api-design` applies your project's conventions during the refactor instead of generic rules.
-- **Enable diff preview for destructive modes.** Set `diff_preview = true` in config, or toggle at runtime with `:DwightDiffToggle`.
+- **Enable diff preview for destructive modes.** Set `diff_preview = true` in config to show a side-by-side diff before applying changes.
 
 ---
 
@@ -127,8 +127,6 @@ The prompt buffer opened by `:DwightInvoke` supports special tokens:
 | `:DwightRepeat` | | Replay last operation on current selection |
 | `:DwightMultiUndo` | | Undo last multi-file change set |
 | `:DwightCancel` | `[all]` | Cancel nearest active job, or all jobs |
-| `:DwightDiffToggle` | | Toggle diff preview before applying |
-| `:DwightStreamToggle` | | Toggle streaming output |
 | `:DwightLintClear` | | Clear dwight lint diagnostics from buffer |
 
 ---

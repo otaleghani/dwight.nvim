@@ -292,11 +292,8 @@ Output markdown that replaces the selection.
 		icon = "📋",
 		context = "prose",
 		description = "Create a structured implementation plan",
-		is_plan = true,
 		task = [=[
 Create a concrete, executable implementation plan based on the selected text.
-
-OUTPUT FORMAT — this plan will be parsed by dwight, so follow EXACTLY:
 
 # Plan: [Title]
 
@@ -305,34 +302,27 @@ Brief summary of what's being built and why (2-3 sentences).
 
 ## Decisions Needed
 List gray areas the developer must resolve before execution:
-- ⚠️ **Decision**: Options and trade-offs
+- **Decision**: Options and trade-offs
 
 ## Steps
 
 ### 1. [Step title]
 Brief developer-facing description of what this step does and why.
-<!-- @dwight:action create path/to/new/file.ts -->
-<!-- @dwight:prompt /stub $feature Create ... -->
+Files affected, what to create/edit/delete, and the approach.
 
 ### 2. [Step title]
 Description.
-<!-- @dwight:action edit path/to/existing/file.ts -->
-<!-- @dwight:prompt /code $feature Implement ... -->
 
-### 3. [Step title]
-Description.
-<!-- @dwight:action run npm test -->
+(continue for all steps)
 
-Available actions: create, edit, delete, move (src → dest), run (shell command).
-Prompts use dwight syntax: /mode +modifier $feature instructions.
-Modifiers: +run (inject last test/build output).
+## Verification
+How to verify the plan succeeded (run tests, build, manual checks).
 
 RULES:
-- Be STINGY: flag every ambiguity as a ⚠️ Decision Needed.
-- Each step should be small enough for one dwight prompt.
+- Flag every ambiguity in "Decisions Needed".
+- Each step should be small and focused.
 - Order steps by dependency (what must happen first).
-- Include a final "verify" step (run tests, build, etc).
-- Reference features with $name if they exist in context.
+- Include a final verification step.
 ]=] .. PROSE_SCOPE,
 	},
 
@@ -368,35 +358,9 @@ Add detailed explanatory comments to the content below:
 	docs = {
 		name = "Docs",
 		icon = "📄",
-		context = "both",
-		description = "Generate documentation (comments in code, markdown in prose)",
-		is_docs = true,
-		-- Task is set dynamically based on filetype in M.get()
-		task = "",
-	},
-}
-
---------------------------------------------------------------------
--- Docs mode: dynamic task based on filetype
---------------------------------------------------------------------
-
-local DOCS_CODE_TASK = [=[
-Add comprehensive documentation comments to the code below using the language's
-idiomatic documentation system:
-
-- JavaScript/TypeScript: JSDoc with @param, @returns, @throws, @example
-- Python: Google-style docstrings with Args, Returns, Raises, Examples
-- Go: godoc format (// FunctionName does ...)
-- Rust: /// with # Examples, # Panics, # Errors
-- Java/Kotlin: Javadoc with @param, @return, @throws
-- Lua: EmmyLua @param, @return, @class
-
-Document every exported/public function, class, method, and type.
-Include parameter types, return types, brief description, and one example.
-Do NOT modify any code — only add documentation comments.
-]=] .. SCOPE
-
-local DOCS_PROSE_TASK = [=[
+		context = "prose",
+		description = "Generate user-facing or developer documentation",
+		task = [=[
 Generate user-facing documentation based on the selected text.
 
 If this looks like developer/technical content, generate DEVELOPER documentation:
@@ -408,7 +372,9 @@ If this looks like feature descriptions or high-level content, generate USER doc
 - Focus on what the user can DO, not how it works
 
 Output clean Markdown. Use headers, code blocks, and callout blocks.
-]=] .. PROSE_SCOPE
+]=] .. PROSE_SCOPE,
+	},
+}
 
 --------------------------------------------------------------------
 -- Public API
@@ -434,16 +400,6 @@ function M.get(name)
 	local mode = M.registry[name]
 	if not mode then
 		return nil
-	end
-
-	-- Dynamic task for docs mode
-	if name == "docs" and mode.task == "" then
-		local ft = vim.bo.filetype
-		if ft == "markdown" or ft == "text" or ft == "help" then
-			return vim.tbl_extend("force", mode, { task = DOCS_PROSE_TASK })
-		else
-			return vim.tbl_extend("force", mode, { task = DOCS_CODE_TASK, is_docs = false })
-		end
 	end
 
 	return mode

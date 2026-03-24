@@ -87,12 +87,6 @@ Opens a split buffer with the full diff of all changes from the most recent agen
 
 Toggles whether git diffs and blame information are included in AI prompts. When enabled (default), the AI sees what you recently changed and who last modified each line — helpful for understanding intent.
 
-```vim
-:DwightDiffToggle
-```
-
-Toggles the diff preview that appears before applying inline changes.
-
 ---
 
 ## Tips
@@ -112,7 +106,6 @@ Toggles the diff preview that appears before applying inline changes.
 | `:DwightCommit` | | Generate commit message from staged changes + AI context |
 | `:DwightSquash` | | Squash dwight checkpoint commits into one |
 | `:DwightDiffReview` | | Open full diff of recent agent changes |
-| `:DwightDiffToggle` | | Toggle diff preview before applying changes |
 | `:DwightGitToggle` | | Toggle git diff/blame in prompts |
 
 ---

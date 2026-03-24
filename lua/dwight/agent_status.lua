@@ -692,6 +692,82 @@ function M.update_progress(task_id, event)
 end
 
 --------------------------------------------------------------------
+-- Phase / error / tool-fold helpers
+--------------------------------------------------------------------
+
+--- Render a lightweight sub-header with dotted fill.
+--- Visually lighter than header() (which uses ── for session-level boundaries).
+function M.phase(name)
+	M.append("")
+	M.append_hl(string.format("  %s %s", name, string.rep("·", math.max(0, 38 - #name))), "DwightDim")
+end
+
+--- Show a short error summary inline, with full error in a fold plus an actionable hint.
+function M.error_block(summary, detail, hint)
+	M.append_hl("  " .. summary:sub(1, 56), "DwightFail")
+	local detail_lines = {}
+	if type(detail) == "string" and #detail > 0 then
+		for line in (detail .. "\n"):gmatch("([^\n]*)\n") do
+			detail_lines[#detail_lines + 1] = line
+		end
+	elseif type(detail) == "table" then
+		detail_lines = detail
+	end
+	if #detail_lines > 0 then
+		M.append_fold("  ▸ Error detail", detail_lines)
+	end
+	if hint then
+		M.append_hl("  " .. hint, "DwightDim")
+	end
+end
+
+--- Render tool activity grouped by type into a fold.
+function M.tool_fold(tool_log, tool_counts)
+	if not tool_log or #tool_log == 0 then
+		return
+	end
+	local total = 0
+	for _, v in pairs(tool_counts) do
+		total = total + v
+	end
+
+	local groups = {
+		{ label = "Read", pattern = "^Read ", items = {} },
+		{ label = "Search", pattern = "^[SL]", items = {} },
+		{ label = "Edit", pattern = "^Edit ", items = {} },
+		{ label = "Write", pattern = "^Write ", items = {} },
+		{ label = "Command", pattern = "^%$", items = {} },
+		{ label = "Other", pattern = nil, items = {} },
+	}
+
+	for _, entry in ipairs(tool_log) do
+		local matched = false
+		for _, g in ipairs(groups) do
+			if g.pattern and entry:match(g.pattern) then
+				g.items[#g.items + 1] = entry
+				matched = true
+				break
+			end
+		end
+		if not matched then
+			groups[#groups].items[#groups[#groups].items + 1] = entry
+		end
+	end
+
+	local detail_lines = {}
+	for _, g in ipairs(groups) do
+		if #g.items > 0 then
+			detail_lines[#detail_lines + 1] = string.format("── %s (%d) ──", g.label, #g.items)
+			for _, item in ipairs(g.items) do
+				detail_lines[#detail_lines + 1] = "  " .. item
+			end
+		end
+	end
+
+	M.append_fold(string.format("  ▸ Details (%d tool calls)", total), detail_lines)
+end
+
+--------------------------------------------------------------------
 -- Fold support
 --------------------------------------------------------------------
 

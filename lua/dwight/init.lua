@@ -68,7 +68,6 @@ M.defaults = {
 	agentic_opts = {
 		max_output_tokens = 64000, -- per-response output token budget (Claude Code)
 		cli_timeout = 600, -- seconds before killing a CLI agent session (10 min)
-		claude_code_timeout = 600, -- alias for cli_timeout (backwards compat)
 		reflection = false, -- agent self-reflection/retry gate
 	},
 
@@ -171,6 +170,7 @@ function M.setup(opts)
 			claude_code = M.config.claude_code_model or M.config.model or "sonnet",
 			codex = M.config.codex_model or "codex",
 			gemini = M.config.gemini_model or "gemini",
+			opencode = M.config.model or "opencode",
 		}
 		local model = model_map[M.config.backend]
 		if model then

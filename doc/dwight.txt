@@ -284,12 +284,6 @@ Configuration ~
   :DwightSwitch [model]                                *:DwightSwitch*
       Switch AI model.
 
-  :DwightStreamToggle                              *:DwightStreamToggle*
-      Toggle streaming output.
-
-  :DwightDiffToggle                                  *:DwightDiffToggle*
-      Toggle diff preview.
-
   :DwightGitToggle                                    *:DwightGitToggle*
       Toggle git context inclusion.
 

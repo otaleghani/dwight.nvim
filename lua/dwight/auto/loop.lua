@@ -165,7 +165,7 @@ local function render_recap(status, opts)
 				err = opts.failed_error
 			end
 			if err ~= "" then
-				status.append_hl(string.format("    └ %s", err:sub(1, 120)), "DwightFail")
+				status.error_block(err:sub(1, 56), err)
 			end
 		else
 			status.append_hl(string.format("  ○ Task %d: %s", i, title), "DwightSkip")
@@ -326,6 +326,12 @@ function M._execute_task_agentic(task, task_num, total_tasks, master_request, st
 		if feature_ctx then
 			integration_text = integration_text .. "\n\n" .. feature_ctx
 		end
+
+		-- Cross-mode context bridge: inject recent session activity
+		local last_ctx = integration.read_last_session_context()
+		if last_ctx then
+			integration_text = integration_text .. "\n\n" .. last_ctx
+		end
 	end)
 
 	local task_description = string.format(
@@ -377,8 +383,16 @@ function M._execute_task_agentic(task, task_num, total_tasks, master_request, st
 			local key = classify_tool(desc)
 			tool_counts[key] = tool_counts[key] + 1
 			tool_log[#tool_log + 1] = desc:sub(1, 120)
+			local action = desc:sub(1, 20)
 			status.spin(
-				string.format("[%d/%d] working...%s  %ds", task_num, total_tasks, fmt_tools(), os.time() - started)
+				string.format(
+					"[%d/%d] working...%s  %ds  %s",
+					task_num,
+					total_tasks,
+					fmt_tools(),
+					os.time() - started,
+					action
+				)
 			)
 			-- Log detail to session_log
 			pcall(function()
@@ -468,18 +482,12 @@ function M._execute_task_agentic(task, task_num, total_tasks, master_request, st
 					"DwightFail"
 				)
 				if data.error and data.error ~= "" then
-					status.append_hl(string.format("    └ %s", data.error:sub(1, 200)), "DwightFail")
+					status.error_block(data.error:sub(1, 56), data.error or "", ":DwightAutoRetry to retry")
 				end
 			end
 
-			-- Foldable detail section
-			if #tool_log > 0 then
-				local total_tools = 0
-				for _, v in pairs(tool_counts) do
-					total_tools = total_tools + v
-				end
-				status.append_fold(string.format("  ▸ Details (%d tool calls)", total_tools), tool_log)
-			end
+			-- Foldable detail section (grouped by type)
+			status.tool_fold(tool_log, tool_counts)
 
 			callback(success, session_data)
 		end,
@@ -622,6 +630,8 @@ function M._run_loop(tasks, start_from, master_request, master_started, status, 
 		status.append_fold("  " .. header, baseline_lines)
 	end
 
+	status.phase("Execution")
+
 	local function run_next(idx)
 		if idx > total then
 			-- ALL DONE
@@ -641,6 +651,8 @@ function M._run_loop(tasks, start_from, master_request, master_started, status, 
 			})
 
 			status.end_session(true, total_duration)
+
+			status.phase("Follow-ups")
 
 			-- Post-session integration: audit suggestions, split warnings, squash offer
 			pcall(function()
@@ -662,6 +674,18 @@ function M._run_loop(tasks, start_from, master_request, master_started, status, 
 						gh.maybe_offer_pr()
 					end, 1000)
 				end
+			end)
+
+			-- Write last session summary (cross-mode context bridge)
+			pcall(function()
+				local integration = require("dwight.integration")
+				integration.write_last_session({
+					mode = "auto",
+					request = master_request,
+					success = true,
+					duration = total_duration,
+					cost = total_cost,
+				})
 			end)
 
 			-- Write session summary log
@@ -867,6 +891,7 @@ function M._run_loop(tasks, start_from, master_request, master_started, status, 
 
 				-- Verification pipeline: lint → tests → coverage → smoke
 				-- Pass baseline_failures and baseline_coverage for delta checks
+				status.phase("Verification")
 				auto._verification_gate(status, function(gate_passed, gate_output)
 					if gate_passed then
 						-- Compact diff summary (file count only)

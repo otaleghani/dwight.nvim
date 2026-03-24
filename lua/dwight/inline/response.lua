@@ -127,38 +127,8 @@ function M.handle_response(job_id, raw_output, err_output, exit_code, selection,
 		end
 	end
 
-	-- Docs mode: save output as markdown file instead of replacing code
-	if job and job.is_docs then
-		pcall(function()
-			-- Extract markdown from fences
-			local content = raw_output:match("```%w*%s*\n(.-)```")
-				or raw_output:match("~~~%w*%s*\n(.-)~~~")
-				or raw_output
-			content = vim.trim(content)
-			if content ~= "" then
-				-- Save to docs/ with a name based on the file being documented
-				local source_name = vim.fn.fnamemodify(selection.filepath or "", ":t:r") or "doc"
-				local docs_dir = vim.fn.getcwd() .. "/docs"
-				vim.fn.mkdir(docs_dir, "p")
-				local path = docs_dir .. "/" .. source_name .. ".md"
-				local f = io.open(path, "w")
-				if f then
-					f:write(content)
-					f:close()
-					log.finish(job_id, "success", raw_output, "[docs: " .. path .. "]", nil)
-					vim.notify("[dwight] Documentation saved to docs/" .. source_name .. ".md", vim.log.levels.INFO)
-					vim.cmd("edit " .. vim.fn.fnameescape(path))
-				end
-			end
-		end)
-		pcall(function()
-			require("dwight.tracker").record(mode_name or "docs", #prompt_text, #raw_output)
-		end)
-		return
-	end
-
-	-- Prose modes (brainstorm, refine, plan): raw markdown replaces selection
-	if job and (job.is_prose or job.is_plan) then
+	-- Prose modes (brainstorm, refine, plan, docs): raw markdown replaces selection
+	if job and job.is_prose then
 		-- Strip fences if the LLM wrapped it anyway
 		local content = raw_output:gsub("^```%w*%s*\n", ""):gsub("\n```%s*$", "")
 		content = content:gsub("^~~~%w*%s*\n", ""):gsub("\n~~~%s*$", "")

@@ -118,16 +118,18 @@ end)
 io.write("── config.migrate_deprecated ──\n")
 
 T.test("migrate: claude_code_timeout -> cli_timeout", function()
+	local user = { agentic_opts = { claude_code_timeout = 300 } }
 	local cfg = { agentic_opts = { claude_code_timeout = 300 } }
-	local msgs = config.migrate_deprecated(cfg)
+	local msgs = config.migrate_deprecated(cfg, user)
 	T.eq(300, cfg.agentic_opts.cli_timeout, "should migrate value")
 	T.ok(#msgs > 0, "should produce a warning")
 	T.match("deprecated", msgs[1].msg)
 end)
 
 T.test("migrate: both set, cli_timeout wins", function()
+	local user = { agentic_opts = { cli_timeout = 500, claude_code_timeout = 300 } }
 	local cfg = { agentic_opts = { cli_timeout = 500, claude_code_timeout = 300 } }
-	local msgs = config.migrate_deprecated(cfg)
+	local msgs = config.migrate_deprecated(cfg, user)
 	T.eq(500, cfg.agentic_opts.cli_timeout, "cli_timeout should be unchanged")
 	T.ok(#msgs > 0)
 	T.match("precedence", msgs[1].msg)
@@ -143,6 +145,54 @@ T.test("migrate: no deprecated keys is clean", function()
 	local cfg = { agentic_opts = { cli_timeout = 600 } }
 	local msgs = config.migrate_deprecated(cfg)
 	T.len(0, msgs)
+end)
+
+T.test("migrate: defaults-only config produces 0 messages", function()
+	-- Simulates what happens after vim.tbl_deep_extend merges defaults with empty user opts.
+	-- The defaults should NOT trigger any deprecation warning.
+	local defaults = {
+		agentic_opts = {
+			max_output_tokens = 64000,
+			cli_timeout = 600,
+			reflection = false,
+		},
+	}
+	local cfg = vim.tbl_deep_extend("force", {}, defaults, {})
+	local msgs = config.migrate_deprecated(cfg)
+	T.len(0, msgs, "defaults-only config should NOT trigger deprecation warning")
+end)
+
+T.test("migrate: user passes only claude_code_timeout, migrates to cli_timeout", function()
+	local defaults = {
+		agentic_opts = {
+			max_output_tokens = 64000,
+			cli_timeout = 600,
+			reflection = false,
+		},
+	}
+	-- User opts: they set claude_code_timeout but not cli_timeout
+	local user = { agentic_opts = { claude_code_timeout = 300 } }
+	local cfg = vim.tbl_deep_extend("force", {}, defaults, user)
+	local msgs = config.migrate_deprecated(cfg, user)
+	T.eq(300, cfg.agentic_opts.cli_timeout, "should migrate user value")
+	T.ok(#msgs > 0, "should warn about deprecated key")
+	T.match("deprecated", msgs[1].msg)
+end)
+
+T.test("migrate: user explicitly sets both, warns about precedence", function()
+	local defaults = {
+		agentic_opts = {
+			max_output_tokens = 64000,
+			cli_timeout = 600,
+			reflection = false,
+		},
+	}
+	local user = { agentic_opts = { cli_timeout = 500, claude_code_timeout = 300 } }
+	local cfg = vim.tbl_deep_extend("force", {}, defaults, user)
+	local msgs = config.migrate_deprecated(cfg, user)
+	T.eq(500, cfg.agentic_opts.cli_timeout)
+	T.ok(#msgs > 0)
+	T.match("precedence", msgs[1].msg)
 end)
 
 --------------------------------------------------------------------
@@ -209,4 +259,63 @@ T.test("check_backend_binary: missing binary produces warning", function()
 	})
 	T.ok(#msgs > 0)
 	T.match("not found", msgs[1].msg)
+end)
+
+--------------------------------------------------------------------
+-- config.check_all integration
+--------------------------------------------------------------------
+
+io.write("── config.check_all integration ──\n")
+
+T.test("check_all: opencode backend with no user agentic_opts produces no deprecation warning", function()
+	-- This is the exact scenario from issue #4
+	local defaults = require("dwight.init").defaults
+	local user_opts = { backend = "opencode" }
+	local cfg = vim.tbl_deep_extend("force", {}, defaults, user_opts)
+
+	local warnings = {}
+	local orig_notify = vim.notify
+	vim.notify = function(msg, level, _)
+		if type(msg) == "string" and msg:match("claude_code_timeout") then
+			warnings[#warnings + 1] = msg
+		end
+	end
+
+	config.check_all(cfg, user_opts)
+
+	vim.notify = orig_notify
+	T.len(0, warnings, "should not warn about claude_code_timeout when user didn't set it")
+end)
+
+T.test("check_all: default backend with no user opts produces no deprecation warning", function()
+	local defaults = require("dwight.init").defaults
+	local cfg = vim.tbl_deep_extend("force", {}, defaults, {})
+
+	local warnings = {}
+	local orig_notify = vim.notify
+	vim.notify = function(msg, level, _)
+		if type(msg) == "string" and msg:match("claude_code_timeout") then
+			warnings[#warnings + 1] = msg
+		end
+	end
+
+	config.check_all(cfg, {})
+
+	vim.notify = orig_notify
+	T.len(0, warnings, "default config should produce no deprecation warnings")
+end)
+
+T.test("check_all: claude_code_timeout is cleaned from cfg after migration", function()
+	local defaults = require("dwight.init").defaults
+	local user_opts = { agentic_opts = { claude_code_timeout = 300 } }
+	local cfg = vim.tbl_deep_extend("force", {}, defaults, user_opts)
+
+	local orig_notify = vim.notify
+	vim.notify = function() end
+
+	config.check_all(cfg, user_opts)
+
+	vim.notify = orig_notify
+	T.is_nil(cfg.agentic_opts.claude_code_timeout, "claude_code_timeout should be nil after migration")
+	T.eq(300, cfg.agentic_opts.cli_timeout, "cli_timeout should have the migrated value")
 end)
